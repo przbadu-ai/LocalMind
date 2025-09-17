@@ -28,8 +28,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const navigationItems = [
   { title: "Chats", url: "/chats", icon: MessageSquare },
-  { title: "Projects", url: "/projects", icon: Folder },
-  { title: "Artifacts", url: "/artifacts", icon: Box },
+  { title: "Settings", url: "/settings", icon: Folder },
 ]
 
 const recentItems = [
@@ -56,13 +55,15 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="p-4">
-        <Button
-          variant="outline"
-          className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
-        >
-          <Plus className="h-4 w-4" />
-          New chat
-        </Button>
+        <NavLink to={"/"} className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
+          >
+            <Plus className="h-4 w-4" />
+            New chat
+          </Button>
+        </NavLink>
       </SidebarHeader>
 
       <SidebarContent className="px-4">
@@ -108,7 +109,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
+      {/* <SidebarFooter className="p-4">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent/50 cursor-pointer">
           <Avatar className="h-8 w-8">
             <AvatarFallback className="bg-primary text-primary-foreground text-sm">
@@ -121,7 +122,7 @@ export function AppSidebar() {
           </div>
           <ChevronDown className="h-4 w-4 text-sidebar-foreground/60" />
         </div>
-      </SidebarFooter>
+      </SidebarFooter> */}
     </Sidebar>
   )
 }

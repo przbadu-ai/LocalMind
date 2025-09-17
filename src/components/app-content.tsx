@@ -7,7 +7,6 @@ const actionButtons = [
   { icon: Code, label: "Code", variant: "outline" as const },
   { icon: PenTool, label: "Write", variant: "outline" as const },
   { icon: Briefcase, label: "Career chat", variant: "outline" as const },
-  { icon: Sparkles, label: "Claude's choice", variant: "outline" as const },
 ]
 
 export function MainContent() {
@@ -22,7 +21,7 @@ export function MainContent() {
             <div className="flex items-center justify-center gap-3">
               <Sparkles className="h-8 w-8 text-primary" />
               <h1 className="text-4xl font-light text-foreground">
-                Happy Wednesday, przbadu
+                Welcome
               </h1>
             </div>
           </div>
@@ -63,7 +62,7 @@ export function MainContent() {
             {/* Version info */}
             <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground pt-4">
               <span className="flex items-center gap-2">
-                Opus 4.1
+                openai/gpt-oss-20b
                 <ArrowUp className="h-3 w-3" />
               </span>
             </div>

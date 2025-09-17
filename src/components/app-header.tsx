@@ -8,15 +8,12 @@ export function AppHeader() {
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex items-center gap-4">
         <SidebarTrigger className="h-8 w-8" />
-        <div className="text-sm font-medium bg-muted/50 px-3 py-1.5 rounded-md">
-          Procurementexpress
-        </div>
       </div>
       
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="h-8 w-8">
+        {/* <Button variant="ghost" size="icon" className="h-8 w-8">
           <Bell className="h-4 w-4" />
-        </Button>
+        </Button> */}
         <ThemeToggle />
       </div>
     </header>
