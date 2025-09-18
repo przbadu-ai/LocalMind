@@ -12,9 +12,16 @@
   "app": {
     "windows": [
       {
-        "title": "local-mind",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "LocalMind",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": false,
+        "decorations": false,
+        "transparent": false,
+        "center": true
       }
     ],
     "security": {

@@ -1,13 +1,8 @@
-import { useState } from "react"
-import { 
-  MessageSquare, 
-  Plus, 
+import {
+  MessageSquare,
+  Plus,
   Folder,
-  Box, 
-  User,
-  Settings,
   ChevronDown,
-  Sparkles,
   FileText,
   Code,
   Globe,
@@ -23,9 +18,13 @@ import {
   Bug,
   Bell,
   Smartphone,
-  Palette
+  Palette,
+  Minus,
+  Square,
+  X
 } from "lucide-react"
 import { NavLink, useLocation } from "react-router-dom"
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 import {
   Sidebar,
@@ -81,18 +80,81 @@ export function AppSidebar() {
 
   const isActive = (path: string) => currentPath === path
 
+  const handleMinimize = async () => {
+    try {
+      const appWindow = getCurrentWebviewWindow();
+      await appWindow.minimize();
+    } catch (err) {
+      console.error('Failed to minimize:', err);
+    }
+  };
+
+  const handleMaximize = async () => {
+    try {
+      const appWindow = getCurrentWebviewWindow();
+      await appWindow.toggleMaximize();
+    } catch (err) {
+      console.error('Failed to maximize:', err);
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      const appWindow = getCurrentWebviewWindow();
+      await appWindow.close();
+    } catch (err) {
+      console.error('Failed to close:', err);
+    }
+  };
+
   return (
     <Sidebar className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4">
-        <NavLink to={"/"} className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
-          >
-            <Plus className="h-4 w-4" />
-            New chat
-          </Button>
-        </NavLink>
+      <SidebarHeader className="p-0">
+        {/* Window controls and drag region */}
+        <div
+          data-tauri-drag-region
+          className="flex items-center justify-between h-12 px-3 border-b bg-sidebar"
+        >
+          <div className="flex items-center gap-2" data-tauri-drag-region>
+            <span className="text-sm font-semibold">LocalMind</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleMinimize}
+              className="p-1.5 rounded hover:bg-sidebar-accent transition-colors"
+              aria-label="Minimize"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+            <button
+              onClick={handleMaximize}
+              className="p-1.5 rounded hover:bg-sidebar-accent transition-colors"
+              aria-label="Maximize"
+            >
+              <Square className="h-3 w-3" />
+            </button>
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded hover:bg-red-500 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+
+        {/* New chat button */}
+        <div className="p-4">
+          <NavLink to={"/"} className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
+            >
+              <Plus className="h-4 w-4" />
+              New chat
+            </Button>
+          </NavLink>
+        </div>
       </SidebarHeader>
 
       <SidebarContent className="px-4">
@@ -141,7 +203,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent/50 cursor-pointer">
           <Avatar className="h-8 w-8">
             <AvatarFallback className="bg-primary text-primary-foreground text-sm">
@@ -149,12 +211,12 @@ export function AppSidebar() {
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 text-left">
-            <p className="text-sm font-medium text-sidebar-foreground">przbadu</p>
-            <p className="text-xs text-sidebar-foreground/60">Procurementexpress</p>
+            <p className="text-sm font-medium text-sidebar-foreground">[user]</p>
+            <p className="text-xs text-sidebar-foreground/60">[Placeholder]</p>
           </div>
           <ChevronDown className="h-4 w-4 text-sidebar-foreground/60" />
         </div>
-      </SidebarFooter> */}
+      </SidebarFooter>
     </Sidebar>
   )
 }
