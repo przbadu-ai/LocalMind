@@ -2,7 +2,6 @@ import {
   MessageSquare,
   Plus,
   Folder,
-  ChevronDown,
   FileText,
   Code,
   Globe,
@@ -37,9 +36,9 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const navigationItems = [
   { title: "Chats", url: "/chats", icon: MessageSquare },
@@ -113,12 +112,19 @@ export function AppSidebar() {
         {/* Window controls and drag region */}
         <div
           data-tauri-drag-region
-          className="flex items-center justify-between h-12 px-3 border-b bg-sidebar"
+          className="flex items-center justify-between h-[55px] px-3"
         >
-          <div className="flex items-center gap-2" data-tauri-drag-region>
-            <span className="text-sm font-semibold">LocalMind</span>
-          </div>
-          <div className="flex items-center gap-1">
+          <div
+            className="flex items-center gap-1" 
+            style={{ position: 'fixed', top: 20, left: 10, width: '250px', zIndex: 10 }}
+          >
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded hover:bg-red-500 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <X className="h-3 w-3" />
+            </button>
             <button
               onClick={handleMinimize}
               className="p-1.5 rounded hover:bg-sidebar-accent transition-colors"
@@ -133,13 +139,9 @@ export function AppSidebar() {
             >
               <Square className="h-3 w-3" />
             </button>
-            <button
-              onClick={handleClose}
-              className="p-1.5 rounded hover:bg-red-500 hover:text-white transition-colors"
-              aria-label="Close"
-            >
-              <X className="h-3 w-3" />
-            </button>
+            <div className="bg-sidebar-accent ml-2">
+              <SidebarTrigger className="h-8 w-8" />
+            </div>
           </div>
         </div>
 
@@ -203,18 +205,13 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent/50 cursor-pointer">
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-              PZ
-            </AvatarFallback>
-          </Avatar>
           <div className="flex-1 text-left">
-            <p className="text-sm font-medium text-sidebar-foreground">[user]</p>
-            <p className="text-xs text-sidebar-foreground/60">[Placeholder]</p>
+            <p className="text-sm font-medium text-sidebar-foreground">Version</p>
+            <p className="text-xs text-sidebar-foreground/60">1.0.0</p>
           </div>
-          <ChevronDown className="h-4 w-4 text-sidebar-foreground/60" />
+          {/* <ChevronDown className="h-4 w-4 text-sidebar-foreground/60" /> */}
         </div>
       </SidebarFooter>
     </Sidebar>
