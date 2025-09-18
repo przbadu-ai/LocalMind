@@ -9,33 +9,33 @@
     /* Light mode - Clean and minimal */
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
-
+    
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
-
+    
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
-
+    
     /* Orange accent inspired by the interface */
     --primary: 25 95% 53%;
     --primary-foreground: 0 0% 98%;
-
+    
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
-
+    
     --muted: 240 4.8% 95.9%;
     --muted-foreground: 240 3.8% 46.1%;
-
+    
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
-
+    
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-
+    
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 25 95% 53%;
-
+    
     /* Layout specific colors */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -53,32 +53,32 @@
     /* Dark mode - Matching the uploaded interface */
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
-
+    
     --card: 240 10% 3.9%;
     --card-foreground: 0 0% 98%;
-
+    
     --popover: 240 10% 3.9%;
     --popover-foreground: 0 0% 98%;
-
+    
     --primary: 25 95% 53%;
     --primary-foreground: 240 10% 3.9%;
-
+    
     --secondary: 240 3.7% 15.9%;
     --secondary-foreground: 0 0% 98%;
-
+    
     --muted: 240 3.7% 15.9%;
     --muted-foreground: 240 5% 64.9%;
-
+    
     --accent: 240 3.7% 15.9%;
     --accent-foreground: 0 0% 98%;
-
+    
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-
+    
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 25 95% 53%;
-
+    
     /* Dark sidebar matching the interface */
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
@@ -93,65 +93,27 @@
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    @apply border-border;
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    @apply bg-background text-foreground font-sans antialiased;
   }
-
+  
   /* Custom scrollbar for dark theme */
   ::-webkit-scrollbar {
     width: 6px;
   }
-
+  
   ::-webkit-scrollbar-track {
-    background-color: transparent;
+    @apply bg-transparent;
   }
-
+  
   ::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--border));
-    border-radius: 9999px;
+    @apply bg-border rounded-full;
   }
-
+  
   ::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.5);
-  }
-}
-
-:root {
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(240 5.3% 26.1%);
-  --sidebar-primary: hsl(240 5.9% 10%);
-  --sidebar-primary-foreground: hsl(0 0% 98%);
-  --sidebar-accent: hsl(240 4.8% 95.9%);
-  --sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
-}
-
-.dark {
-  --sidebar: hsl(240 5.9% 10%);
-  --sidebar-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-primary: hsl(224.3 76.3% 48%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 3.7% 15.9%);
-  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-border: hsl(240 3.7% 15.9%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
-}
-
-/* Sidebar color mappings for Tailwind v3 */
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
+    @apply bg-muted-foreground/50;
   }
 }
