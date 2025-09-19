@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -59,7 +60,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/config');
+      const response = await fetch(apiUrl('/config'));
       const data = await response.json();
       setConfig(data.config);
     } catch (error) {
@@ -78,7 +79,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
     setSaving(true);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/config', {
+      const response = await fetch(apiUrl('/config'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +110,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const testLLMConnection = async () => {
     setTestingConnection(true);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/config/test-llm', {
+      const response = await fetch(apiUrl('/config/test-llm'), {
         method: 'POST',
       });
       const data = await response.json();

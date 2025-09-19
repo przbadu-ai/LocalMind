@@ -199,9 +199,9 @@ local-mind/
 
 ### Backend API
 
-The backend server runs on `http://localhost:8000` by default. API documentation is available at:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+The backend server runs on `http://localhost:52817` by default. API documentation is available at:
+- Swagger UI: `http://localhost:52817/docs`
+- ReDoc: `http://localhost:52817/redoc`
 
 ### LLM Setup (Ollama)
 
@@ -245,12 +245,12 @@ bun tauri build
 
 **Port already in use:**
 ```bash
-# Kill process on port 8000 (backend)
+# Kill process on port 52817 (backend)
 # Linux/Mac
-lsof -ti:8000 | xargs kill -9
+lsof -ti:52817 | xargs kill -9
 
 # Windows
-netstat -ano | findstr :8000
+netstat -ano | findstr :52817
 taskkill /PID <PID> /F
 ```
 

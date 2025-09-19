@@ -142,10 +142,13 @@ if __name__ == "__main__":
     """
     import uvicorn
 
+    # Use unique port to avoid conflicts with other services
+    PORT = 52817
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=PORT,
         reload=settings.debug,
         log_level="info" if settings.debug else "warning"
     )

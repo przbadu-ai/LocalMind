@@ -26,7 +26,7 @@ echo "📦 Installing dependencies..."
 pip install -r requirements.txt
 
 # Run the server with DEBUG mode for development
-echo "🔥 Starting FastAPI server on http://localhost:8000"
-echo "📚 API documentation available at http://localhost:8000/docs"
+echo "🔥 Starting FastAPI server on http://localhost:52817"
+echo "📚 API documentation available at http://localhost:52817/docs"
 echo "🔧 Running in DEBUG mode"
 DEBUG=true python main.py
