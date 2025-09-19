@@ -1,3 +1,13 @@
+"""
+Document management service for file handling and processing.
+
+This module handles document lifecycle operations including:
+- File upload and storage
+- Document type detection
+- Text extraction and chunking
+- Metadata management
+"""
+
 import os
 import hashlib
 from pathlib import Path
@@ -13,7 +23,16 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentService:
-    """Service for handling document uploads and processing."""
+    """
+    Service for handling document uploads and processing.
+
+    Manages the complete document lifecycle from upload to deletion,
+    including file storage, type detection, and metadata tracking.
+
+    Attributes:
+        uploads_dir: Directory for storing uploaded documents
+        supported_extensions: Map of file extensions to DocumentType
+    """
 
     def __init__(self):
         self.uploads_dir = settings.uploads_dir

@@ -17,13 +17,8 @@ source venv/bin/activate
 echo "📦 Installing dependencies..."
 pip install -r requirements.txt
 
-# Create .env file if it doesn't exist
-if [ ! -f ".env" ]; then
-    echo "📝 Creating .env file from template..."
-    cp .env.example .env
-fi
-
-# Run the server
+# Run the server with DEBUG mode for development
 echo "🔥 Starting FastAPI server on http://localhost:8000"
 echo "📚 API documentation available at http://localhost:8000/docs"
-python main.py
+echo "🔧 Running in DEBUG mode"
+DEBUG=true python main.py

@@ -36,14 +36,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
-
-```bash
-cp .env.example .env
-# Edit .env as needed
-```
-
-### 3. Run Development Server
+### 2. Run Development Server
 
 ```bash
 # Option 1: Using the script
@@ -57,6 +50,20 @@ The API will be available at:
 - API: http://localhost:8000
 - Docs: http://localhost:8000/docs
 - Redoc: http://localhost:8000/redoc
+
+### 3. Configuration
+
+**For Desktop Users:**
+Configuration is managed through the app's Settings UI. Settings are stored in:
+- **Windows**: `%APPDATA%\LocalMind\config.json`
+- **macOS**: `~/Library/Application Support/LocalMind/config.json`
+- **Linux**: `~/.config/LocalMind/config.json`
+
+**For Developers:**
+Use environment variables for development:
+```bash
+DEBUG=true python main.py
+```
 
 ### 4. Test the API
 

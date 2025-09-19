@@ -1,26 +1,67 @@
+"""
+Chat service for RAG-based conversation management.
+
+This module implements the core RAG (Retrieval-Augmented Generation) pipeline,
+managing conversations, context retrieval, and response generation.
+"""
+
 import uuid
 import time
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from models.schemas import ChatRequest, ChatResponse, Citation, SearchQuery
 from services.vector_service import VectorService
 from config import settings
 from core.exceptions import LLMConnectionError
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
 
 class ChatService:
-    """Service for handling chat interactions and RAG pipeline."""
+    """
+    Service for handling chat interactions and RAG pipeline.
+
+    This service orchestrates the complete RAG workflow:
+    1. Context retrieval from vector store
+    2. Citation building from matched documents
+    3. LLM response generation with context
+    4. Conversation history management
+
+    Attributes:
+        vector_service: Service for vector store operations
+        conversations: In-memory storage for conversation histories
+    """
 
     def __init__(self, vector_service: VectorService):
+        """
+        Initialize the chat service.
+
+        Args:
+            vector_service: Vector store service instance
+        """
         self.vector_service = vector_service
-        self.conversations = {}  # In-memory storage for now
+        self.conversations = {}  # TODO: Replace with persistent storage
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        """Process a chat request with RAG pipeline."""
+        """
+        Process a chat request through the RAG pipeline.
+
+        This method:
+        1. Retrieves relevant context based on the query
+        2. Builds citations from matched documents
+        3. Generates a response using the LLM with context
+        4. Stores the conversation for continuity
+
+        Args:
+            request: ChatRequest with message and parameters
+
+        Returns:
+            ChatResponse with generated text, citations, and metadata
+
+        Raises:
+            LLMConnectionError: If LLM service is unavailable
+        """
         start_time = time.time()
 
         try:
@@ -66,13 +107,13 @@ class ChatService:
             self.conversations[conversation_id].append({
                 "role": "user",
                 "content": request.message,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(timezone.utc)
             })
             self.conversations[conversation_id].append({
                 "role": "assistant",
                 "content": response_text,
-                "citations": [c.dict() for c in citations],
-                "timestamp": datetime.utcnow()
+                "citations": [c.model_dump() for c in citations],
+                "timestamp": datetime.now(timezone.utc)
             })
 
             # Calculate response time
@@ -91,16 +132,42 @@ class ChatService:
             raise LLMConnectionError(f"Failed to process chat: {str(e)}")
 
     async def _generate_response(self, query: str, context: str, temperature: float) -> str:
-        """Generate response using LLM (mock implementation)."""
-        # This will be replaced with actual LLM integration
-        # For now, return a mock response
+        """
+        Generate response using LLM with retrieved context.
+
+        Args:
+            query: User's query
+            context: Retrieved context from documents
+            temperature: LLM temperature for response variability
+
+        Returns:
+            Generated response text
+
+        Note:
+            This is a mock implementation. Production should integrate with:
+            - Ollama API
+            - OpenAI API
+            - Local LLM servers
+        """
+        # TODO: Implement actual LLM integration
         if context:
             return f"Based on the provided documents, here's what I found regarding '{query}': {context[:500]}..."
         else:
             return f"I'll help you with '{query}'. However, I don't have any specific documents to reference for this query."
 
     def _build_context(self, search_results: List[Any]) -> str:
-        """Build context string from search results."""
+        """
+        Build formatted context string from search results.
+
+        Combines multiple search results into a structured context
+        that can be passed to the LLM for response generation.
+
+        Args:
+            search_results: List of search results from vector store
+
+        Returns:
+            Formatted context string with source attribution
+        """
         if not search_results:
             return ""
 
@@ -113,11 +180,27 @@ class ChatService:
         return "\n\n".join(context_parts)
 
     async def get_conversation_history(self, conversation_id: str) -> List[Dict[str, Any]]:
-        """Retrieve conversation history."""
+        """
+        Retrieve complete conversation history.
+
+        Args:
+            conversation_id: Unique conversation identifier
+
+        Returns:
+            List of messages with roles, content, and timestamps
+        """
         return self.conversations.get(conversation_id, [])
 
     async def clear_conversation(self, conversation_id: str) -> bool:
-        """Clear a specific conversation."""
+        """
+        Clear/delete a conversation from memory.
+
+        Args:
+            conversation_id: Conversation to clear
+
+        Returns:
+            True if conversation was cleared, False if not found
+        """
         if conversation_id in self.conversations:
             del self.conversations[conversation_id]
             return True
