@@ -7,7 +7,7 @@ providing a unified interface for all configuration needs throughout the app.
 
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from pathlib import Path
 import os
 from .config_manager import get_config_manager, UserConfig, ConfigManager
@@ -76,6 +76,7 @@ class Settings(BaseSettings):
         "http://localhost:1420",
         "tauri://localhost",
         "http://localhost:3000",  # For development
+        "http://192.168.1.173:11434"
     ])
 
     # User configuration manager (initialized in __init__)
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=512)
     chunk_overlap: int = Field(default=50)
     max_file_size_mb: int = Field(default=50)
-    ollama_base_url: str = Field(default="http://localhost:11434")
+    ollama_base_url: str = Field(default="http://192.168.1.173:11434")
     additional_allowed_hosts: List[str] = Field(default_factory=list)
 
     # Directory paths

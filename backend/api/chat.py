@@ -6,10 +6,12 @@ conversation management, and feedback collection.
 """
 
 from fastapi import APIRouter, HTTPException, Query, Path
-from typing import Optional, Dict, Any
+from fastapi.responses import StreamingResponse
+from typing import Optional, Dict, Any, AsyncGenerator
 from models.schemas import ChatRequest, ChatResponse
 from services import ChatService, VectorService
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -17,6 +19,43 @@ router = APIRouter()
 # Initialize services
 vector_service = VectorService()
 chat_service = ChatService(vector_service)
+
+
+@router.post("/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Stream chat responses using Server-Sent Events (SSE).
+
+    This endpoint streams responses in real-time from the Ollama API,
+    providing a better user experience for longer responses.
+
+    Args:
+        request: ChatRequest containing the message and parameters
+
+    Returns:
+        StreamingResponse with SSE formatted data
+    """
+    async def generate():
+        try:
+            # Generate response chunks
+            async for chunk in chat_service.chat_stream(request):
+                # Format as SSE
+                data = json.dumps(chunk)
+                yield f"data: {data}\n\n"
+        except Exception as e:
+            logger.error(f"Streaming failed: {str(e)}")
+            error_data = json.dumps({"error": str(e)})
+            yield f"data: {error_data}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable Nginx buffering
+        }
+    )
 
 
 @router.post("/", response_model=ChatResponse)

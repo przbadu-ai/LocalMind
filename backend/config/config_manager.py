@@ -51,8 +51,8 @@ class UserConfig(BaseModel):
     # Model settings
     embedding_model: str = "all-MiniLM-L6-v2"
     llm_provider: str = "ollama"  # ollama, openai, llamacpp, etc.
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama2"
+    ollama_base_url: str = "http://192.168.1.173:11434"  # Base URL without /v1
+    ollama_model: str = "gpt-oss:latest"
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-3.5-turbo"
 

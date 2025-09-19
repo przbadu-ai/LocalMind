@@ -10,7 +10,7 @@ This module sets up all middleware layers including:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from config import settings
+from config import app_config
 import time
 from fastapi import Request
 
@@ -42,7 +42,7 @@ def setup_middlewares(app: FastAPI):
     # Required for Tauri frontend to communicate with backend
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,  # Tauri origins
+        allow_origins=app_config.CORS_ORIGINS,  # Tauri origins
         allow_credentials=True,  # Allow cookies/auth headers
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],  # RESTful methods
         allow_headers=["*"],  # Accept all headers from client
@@ -51,9 +51,14 @@ def setup_middlewares(app: FastAPI):
     # Trusted host middleware - Validate Host header
     # Prevents host header injection attacks
     allowed_hosts = ["localhost", "127.0.0.1", "*.tauri.localhost"]
-    if settings.additional_allowed_hosts:
-        # Add user-configured hosts (e.g., Proxmox servers)
-        allowed_hosts.extend(settings.additional_allowed_hosts)
+
+    # Add additional hosts from configuration
+    for origin in app_config.CORS_ORIGINS:
+        # Extract host from URL
+        if "://" in origin:
+            host = origin.split("://")[1].split(":")[0]
+            if host not in allowed_hosts:
+                allowed_hosts.append(host)
 
     app.add_middleware(
         TrustedHostMiddleware,

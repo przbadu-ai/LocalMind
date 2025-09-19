@@ -1,10 +1,10 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, FileText, ExternalLink } from "lucide-react"
+import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react"
 
 interface ChatMessage {
   id: string
@@ -97,19 +97,188 @@ export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
   const [selectedReference, setSelectedReference] = useState<Reference | null>(null)
   const [message, setMessage] = useState("")
-  
-  const messages = chatId ? mockChats[chatId] || [] : []
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState("")
+  const [errorRetryCount, setErrorRetryCount] = useState(0)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const conversationIdRef = useRef<string>(chatId || `chat-${Date.now()}`)
+
+  // Load initial messages if they exist
+  useEffect(() => {
+    if (chatId && mockChats[chatId]) {
+      setMessages(mockChats[chatId])
+    }
+  }, [chatId])
 
   const handleReferenceClick = (reference: Reference) => {
     setSelectedReference(reference)
   }
 
-  const handleSendMessage = () => {
-    if (message.trim()) {
-      // Handle sending message
+  const handleSendMessage = async () => {
+    if (message.trim() && !isLoading) {
+      const userMessage: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        type: 'user',
+        content: message.trim(),
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      }
+
+      setMessages(prev => [...prev, userMessage])
       setMessage("")
+      setIsLoading(true)
+      setLoadingMessage("Connecting to AI model...")
+      setErrorRetryCount(0)
+
+      // Create assistant message placeholder
+      const assistantMessageId = `msg-${Date.now() + 1}`
+      const assistantMessage: ChatMessage = {
+        id: assistantMessageId,
+        type: 'assistant',
+        content: '',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+
+      try {
+        const MAX_RETRIES = 3
+        let retryCount = 0
+        let lastError = null
+
+        while (retryCount < MAX_RETRIES) {
+          try {
+            if (retryCount > 0) {
+              setLoadingMessage(`Retrying connection (${retryCount}/${MAX_RETRIES})...`)
+              await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+            }
+
+            const response = await fetch('http://localhost:52817/api/v1/chat/stream', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                message: userMessage.content,
+                conversation_id: conversationIdRef.current,
+                include_citations: false,
+                temperature: 0.7,
+                max_results: 5
+              }),
+            })
+
+            if (!response.ok) {
+              throw new Error(`Server responded with ${response.status}`)
+            }
+
+            setLoadingMessage("Processing your request...")
+
+            const reader = response.body?.getReader()
+            const decoder = new TextDecoder()
+            let fullResponse = ''
+            let hasStartedStreaming = false
+
+            if (reader) {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                const chunk = decoder.decode(value)
+                const lines = chunk.split('\n')
+
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6))
+
+                      if (data.type === 'content') {
+                        if (!hasStartedStreaming) {
+                          hasStartedStreaming = true
+                          setLoadingMessage("")
+                        }
+                        fullResponse += data.content
+                        setMessages(prev => prev.map(msg =>
+                          msg.id === assistantMessageId
+                            ? { ...msg, content: fullResponse }
+                            : msg
+                        ))
+                      } else if (data.type === 'metadata') {
+                        setLoadingMessage("Loading context...")
+                        // Handle citations if needed
+                        if (data.citations && data.citations.length > 0) {
+                          setMessages(prev => prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? { ...msg, references: data.citations }
+                              : msg
+                          ))
+                        }
+                      } else if (data.type === 'error') {
+                        if (data.error.toLowerCase().includes('ollama')) {
+                          throw new Error('ollama_connection_failed')
+                        }
+                        throw new Error(data.error)
+                      }
+                    } catch (e) {
+                      if (e instanceof Error && e.message === 'ollama_connection_failed') {
+                        throw e
+                      }
+                      // Ignore parsing errors for incomplete chunks
+                    }
+                  }
+                }
+              }
+            }
+
+            // Success - break out of retry loop
+            setLoadingMessage("")
+            break
+
+          } catch (error) {
+            lastError = error
+            retryCount++
+
+            if (retryCount >= MAX_RETRIES) {
+              break
+            }
+          }
+        }
+
+        // If we exhausted all retries, show error
+        if (retryCount >= MAX_RETRIES && lastError) {
+          const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error'
+          let userFriendlyMessage = ''
+
+          if (errorMessage.includes('ollama_connection_failed')) {
+            userFriendlyMessage = 'Cannot connect to Ollama. Please ensure:\n• Ollama is installed and running\n• The model is downloaded (gpt-oss:latest)\n• The server is accessible at http://192.168.1.173:11434'
+          } else if (errorMessage.includes('fetch')) {
+            userFriendlyMessage = 'Cannot connect to the backend server. Please ensure:\n• The backend server is running on port 52817\n• Run: cd backend && python main.py'
+          } else {
+            userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• Ollama service is active\n• Network connectivity`
+          }
+
+          setMessages(prev => prev.map(msg =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: userFriendlyMessage }
+              : msg
+          ))
+          setErrorRetryCount(prev => prev + 1)
+        }
+      } finally {
+        setIsLoading(false)
+        setLoadingMessage("")
+      }
     }
   }
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight
+      }
+    }
+  }, [messages])
 
   return (
     <div className="h-full flex flex-col">
@@ -125,7 +294,7 @@ export default function ChatDetail() {
             </div>
 
             {/* Messages */}
-            <ScrollArea className="flex-1 p-4">
+            <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
               <div className="space-y-6">
                 {messages.map((message) => (
                   <div key={message.id} className="space-y-3">
@@ -133,9 +302,44 @@ export default function ChatDetail() {
                       <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                         message.type === 'user'
                           ? 'bg-primary text-primary-foreground'
+                          : message.content.includes('Cannot connect') || message.content.includes('Connection failed')
+                          ? 'bg-destructive/10 border border-destructive/20 text-destructive'
                           : 'bg-muted text-muted-foreground'
                       }`}>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                        {message.type === 'assistant' && message.content === '' && isLoading ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span className="text-sm">{loadingMessage || "Thinking..."}</span>
+                          </div>
+                        ) : (
+                          <>
+                            {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && (
+                              <div className="flex items-center gap-2 mb-2">
+                                <AlertCircle className="h-4 w-4" />
+                                <span className="font-medium text-sm">Connection Error</span>
+                              </div>
+                            )}
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                            {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-3 h-7 text-xs"
+                                onClick={() => {
+                                  const lastUserMsg = messages.filter(m => m.type === 'user').pop()
+                                  if (lastUserMsg) {
+                                    setMessage(lastUserMsg.content)
+                                    setMessages(prev => prev.slice(0, -2))
+                                    setTimeout(() => handleSendMessage(), 100)
+                                  }
+                                }}
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Retry
+                              </Button>
+                            )}
+                          </>
+                        )}
                         <p className="text-xs opacity-70 mt-2">{message.timestamp}</p>
                       </div>
                     </div>
@@ -182,10 +386,14 @@ export default function ChatDetail() {
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Reply to Claude..."
                   className="flex-1"
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
                 />
-                <Button onClick={handleSendMessage} size="icon">
-                  <Send className="h-4 w-4" />
+                <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </div>

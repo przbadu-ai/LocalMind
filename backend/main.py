@@ -21,14 +21,14 @@ from pathlib import Path
 # Add backend directory to path for imports
 sys.path.append(str(Path(__file__).parent))
 
-from config import settings
+from config import app_config
 from core import setup_middlewares, setup_exception_handlers
 from api import api_router
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO if settings.debug else logging.WARNING,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.DEBUG if app_config.DEBUG else logging.INFO,
+    format=app_config.LOG_FORMAT,
     handlers=[
         logging.StreamHandler(sys.stdout)
     ]
@@ -53,9 +53,9 @@ async def lifespan(app: FastAPI):
         Control back to FastAPI during application runtime
     """
     # Startup
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    logger.info(f"Data directory: {settings.data_dir}")
-    logger.info(f"Debug mode: {settings.debug}")
+    logger.info(f"Starting {app_config.APP_NAME} v{app_config.APP_VERSION}")
+    logger.info(f"Data directory: {app_config.DATA_DIR}")
+    logger.info(f"Debug mode: {app_config.DEBUG}")
 
     # TODO: Add startup tasks like:
     # - Pre-load embedding model
@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application instance
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
+    title=app_config.APP_NAME,
+    version=app_config.APP_VERSION,
     description="""
     Open-source, offline-first desktop RAG application.
 
@@ -85,7 +85,7 @@ app = FastAPI(
     - ⚙️ Configurable LLM providers
     """,
     lifespan=lifespan,
-    debug=settings.debug,
+    debug=app_config.DEBUG,
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -97,7 +97,7 @@ setup_middlewares(app)
 setup_exception_handlers(app)
 
 # Include API routes
-app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(api_router, prefix=app_config.API_PREFIX)
 
 
 @app.get("/", include_in_schema=False)
@@ -123,12 +123,12 @@ async def api_root():
         Dict with API metadata
     """
     return {
-        "name": settings.app_name,
-        "version": settings.app_version,
+        "name": app_config.APP_NAME,
+        "version": app_config.APP_VERSION,
         "api_version": "v1",
         "documentation": "/docs",
         "redoc": "/redoc",
-        "health": f"{settings.api_prefix}/health",
+        "health": f"{app_config.API_PREFIX}/health",
         "description": "Local Mind Backend API"
     }
 
@@ -142,13 +142,10 @@ if __name__ == "__main__":
     """
     import uvicorn
 
-    # Use unique port to avoid conflicts with other services
-    PORT = 52817
-
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=PORT,
-        reload=settings.debug,
-        log_level="info" if settings.debug else "warning"
+        host=app_config.BACKEND_HOST,
+        port=app_config.BACKEND_PORT,
+        reload=app_config.DEBUG,
+        log_level="debug" if app_config.DEBUG else "info"
     )
