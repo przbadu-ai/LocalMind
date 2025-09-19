@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "dev:frontend": "vite",
+    "dev:backend": "./bin/start_backend.sh",
+    "dev:all": "./bin/dev.sh",
+    "build": "tsc && vite build && cd backend && python bundle_backend.py",
+    "build:frontend": "tsc && vite build",
+    "build:backend": "cd backend && python bundle_backend.py",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "bun run dev:all",
+    "tauri:build": "bun run build && bun tauri build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

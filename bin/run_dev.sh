@@ -4,6 +4,14 @@
 
 echo "🚀 Starting Local Mind Backend Server..."
 
+# Get the script's directory and the project root
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BACKEND_DIR="$PROJECT_ROOT/backend"
+
+# Change to backend directory
+cd "$BACKEND_DIR"
+
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."

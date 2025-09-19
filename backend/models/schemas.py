@@ -7,7 +7,7 @@ ensuring type safety and automatic validation throughout the application.
 
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -209,6 +209,6 @@ class HealthCheck(BaseModel):
     vector_db_connected: bool = Field(..., description="Vector DB status")
     llm_available: bool = Field(..., description="LLM service status")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(datetime.timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Health check timestamp"
     )

@@ -5,10 +5,12 @@ This module bridges static application configuration with user preferences,
 providing a unified interface for all configuration needs throughout the app.
 """
 
-from pydantic import BaseSettings
-from typing import List, Dict
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import List, Dict, Any, Optional
+from pathlib import Path
 import os
-from .config_manager import get_config_manager
+from .config_manager import get_config_manager, UserConfig, ConfigManager
 
 
 class Settings(BaseSettings):
@@ -67,18 +69,38 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
 
     # Development mode (can be set via env var for development only)
-    debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    debug: bool = Field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")
 
     # CORS settings (static for desktop app)
-    cors_origins: List[str] = [
+    cors_origins: List[str] = Field(default=[
         "http://localhost:1420",
         "tauri://localhost",
         "http://localhost:3000",  # For development
-    ]
+    ])
+
+    # User configuration manager (initialized in __init__)
+    config_manager: Optional[ConfigManager] = Field(default=None, exclude=True)
+    user_config: Optional[UserConfig] = Field(default=None, exclude=True)
+    directories: Dict[str, Path] = Field(default_factory=dict)
+
+    # User settings (loaded from config file)
+    embedding_model: str = Field(default="all-MiniLM-L6-v2")
+    chunk_size: int = Field(default=512)
+    chunk_overlap: int = Field(default=50)
+    max_file_size_mb: int = Field(default=50)
+    ollama_base_url: str = Field(default="http://localhost:11434")
+    additional_allowed_hosts: List[str] = Field(default_factory=list)
+
+    # Directory paths
+    data_dir: Optional[Path] = None
+    lancedb_dir: Optional[Path] = None
+    uploads_dir: Optional[Path] = None
+    logs_dir: Optional[Path] = None
 
     class Config:
         # No .env file for production desktop app
         env_file = None
+        arbitrary_types_allowed = True
 
     def __init__(self, **kwargs):
         """
