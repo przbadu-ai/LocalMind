@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from openai import AsyncOpenAI
 from models.schemas import ChatRequest, ChatResponse, Citation, SearchQuery
 from services.vector_service import VectorService
+from services.database_service import database_service
+from models.database import get_db
 from config.app_settings import config as app_config, OLLAMA_BASE_URL, LLM_MODEL
 from core.exceptions import LLMConnectionError
 import logging
@@ -270,8 +272,22 @@ class ChatService:
             LLMConnectionError: If LLM service is not available
         """
         try:
-            # Generate conversation ID
-            conversation_id = request.conversation_id or str(uuid.uuid4())
+            # Get database session
+            db = next(get_db())
+            start_time = time.time()
+
+            # Get or create chat
+            conversation_id = request.conversation_id
+            chat = database_service.get_or_create_chat(db, conversation_id)
+            conversation_id = chat.id
+
+            # Save user message to database
+            user_message = database_service.add_message(
+                db,
+                chat_id=conversation_id,
+                role="user",
+                content=request.message
+            )
 
             # Retrieve context if needed
             context = ""
@@ -359,29 +375,39 @@ class ChatService:
                         "done": False
                     }
 
-            # Store conversation and send completion signal
-            if conversation_id not in self.conversations:
-                self.conversations[conversation_id] = []
+            # Save assistant message to database
+            processing_time_ms = int((time.time() - start_time) * 1000)
 
-            self.conversations[conversation_id].append({
-                "role": "user",
-                "content": request.message,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
-            self.conversations[conversation_id].append({
-                "role": "assistant",
-                "content": full_response,
-                "citations": citations,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            assistant_message = database_service.add_message(
+                db,
+                chat_id=conversation_id,
+                role="assistant",
+                content=full_response,
+                metadata={
+                    "citations": citations,
+                    "processing_time_ms": processing_time_ms,
+                    "context": context if context else None
+                }
+            )
+
+            # Close database session
+            db.close()
 
             yield {
                 "type": "done",
-                "total_response": full_response
+                "total_response": full_response,
+                "message_id": assistant_message.id if assistant_message else None
             }
 
         except Exception as e:
             logger.error(f"Streaming error: {str(e)}")
+            # Try to close database session if it exists
+            try:
+                if 'db' in locals():
+                    db.close()
+            except:
+                pass
+
             error_msg = str(e).lower()
             if "connection" in error_msg or "connect" in error_msg or "refused" in error_msg:
                 yield {

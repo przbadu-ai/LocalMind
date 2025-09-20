@@ -132,3 +132,49 @@ illuminate/
 - User is a Full-Stack Rails/React engineer with ML/AI experience
 - Preference for open-source, privacy-focused solutions
 - Building for community contribution, not proprietary development
+
+## Configuration Management
+
+### Centralized Configuration System
+The application uses a single `app.config.json` file at the project root as the source of truth for all configuration. This eliminates duplication and ensures consistency across frontend and backend.
+
+**Configuration Files:**
+- `app.config.json` - Main configuration file (single source of truth)
+- `backend/config/app_settings.py` - Python configuration loader (reads from app.config.json)
+- `backend/config/settings.py` - Backward compatibility wrapper
+- `backend/config/config_manager.py` - User-specific runtime overrides
+- `src/config/app-config.ts` - TypeScript configuration loader
+
+**Import Patterns:**
+```python
+# Backend - ALWAYS use this pattern:
+from config.settings import settings  # For backward compatibility
+from config.app_settings import APP_NAME, BACKEND_PORT  # For direct imports
+
+# NOT this (imports module, not instance):
+from config import settings  # WRONG - this imports the module
+```
+
+```typescript
+// Frontend
+import { API_BASE_URL, DEFAULT_LLM_MODEL } from "@/config/app-config"
+```
+
+### Configuration Migration Guidelines
+When updating configuration:
+1. Modify values only in `app.config.json`
+2. Never hardcode URLs, ports, or model names
+3. Always check import paths are correct (module.instance pattern)
+4. Test backend startup after configuration changes
+
+### Common Configuration Pitfalls to Avoid
+1. **Import Error**: Using `from config import settings` instead of `from config.settings import settings`
+2. **Missing Properties**: Not exposing required properties in compatibility wrappers
+3. **Hardcoded Values**: Duplicating configuration values instead of referencing app.config.json
+4. **Path Issues**: Not handling relative vs absolute paths correctly in configuration
+
+### LLM Configuration
+- Default model: `llama3:instruct`
+- Ollama host: `192.168.1.173:11434`
+- Backend port: `52817`
+- All LLM settings centralized in app.config.json

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useLocation } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
+import { chatService, type Chat, type Message } from "@/services/chat-service"
 
 interface ChatMessage {
   id: string
@@ -35,68 +36,10 @@ interface DocumentSection {
   content: string
 }
 
-// Mock data
-const mockChats: Record<string, ChatMessage[]> = {
-  "open-source-rag": [
-    {
-      id: "1",
-      type: "user",
-      content: "This is an exciting project! Building an open-source alternative to Hyperlink with those advanced document highlighting and reference features would be incredibly valuable for the community. Let me dive deep into researching every aspect needed to build this from the ground up.",
-      timestamp: "2 hours ago",
-    },
-    {
-      id: "2", 
-      type: "assistant",
-      content: "Your technical plan for building an open-source desktop RAG application is ready. It includes architecture recommendations using Tauri for cross-platform deployment, LanceDB for vector storage, PyMuPDF for document processing with position tracking, and a React-based frontend. The plan features killer capabilities like scalable citations with exact-position highlighting, offline-first operation, hybrid retrieval systems, and comprehensive model management - delivering a 97% smaller bundle than Electron alternatives while maintaining enterprise-grade functionality.",
-      timestamp: "2 hours ago",
-      references: [
-        {
-          id: "desktop-rag-research",
-          title: "Desktop RAG application research",
-          type: "research",
-          sources: 481,
-          content: "Complete research on desktop RAG applications",
-          document: {
-            title: "Technical Plan for Building an Open-Source Desktop RAG Application",
-            sections: [
-              {
-                title: "Architecture recommendations for cross-platform offline-first document processing",
-                content: "Based on extensive research, the recommended technical stack combines Tauri for the desktop framework, LanceDB for vector storage, PyMuPDF for document processing, and a React-based frontend with advanced document viewing capabilities. This architecture delivers a lightweight (2.5-10MB bundle), performant application that fully supports offline operation while implementing killer features like document reference tracking and exact-position highlighting."
-              },
-              {
-                title: "Executive Summary", 
-                content: "This technical plan outlines the development of a desktop RAG application using modern technologies for optimal performance and user experience."
-              },
-              {
-                title: "1. Desktop Application Framework",
-                content: "Primary Recommendation: Tauri\n\nKey Advantages:\n• Bundle Size: 2.5-10MB vs Electron's 80-120MB\n• Memory Usage: ~50MB vs Electron's 100MB+\n• Startup Time: <500ms vs Electron's 1-2 seconds\n• Security: Rust-based backend with restricted API access\n• Sidecar Support: Perfect for bundling Nexa SDK and ML inference engines"
-              },
-              {
-                title: "Architecture Implementation",
-                content: "The application follows a modern architecture pattern with clear separation of concerns between the frontend React/TypeScript interface and the Rust backend for system operations and document processing."
-              }
-            ]
-          }
-        }
-      ]
-    },
-    {
-      id: "3",
-      type: "user", 
-      content: "Perfect, I will go with Tauri shell, Next.js + Shadcn UI, Python Backend (sidecar) -> FastAPI, Document Processing, LanceDB",
-      timestamp: "2 hours ago"
-    },
-    {
-      id: "4",
-      type: "assistant",
-      content: "Based on your specific requirements for a fully offline desktop application, I strongly recommend LanceDB over ChromaDB. Here's a detailed comparison:\n\nLanceDB vs ChromaDB for Your Use Case\n\nLanceDB - Clear Winner for Desktop Apps ✅\n\nKey Advantages:\n1. True Embedded Database: Runs entirely in-process with zero server overhead\n2. File-Based Storage: Simple .lance files on disk - no separate processes\n3. Performance: 100x faster than Parquet, 40-60ms query latency\n4. Lightweight: Minimal memory footprint (~50MB)\n5. Multi-modal Native: Handles text, images, documents without plugins",
-      timestamp: "2 hours ago"
-    }
-  ]
-}
 
 export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
+  const location = useLocation()
   const { setTitle, clearTitle } = useHeaderStore()
   const [selectedReference, setSelectedReference] = useState<Reference | null>(null)
   const [message, setMessage] = useState("")
@@ -104,9 +47,11 @@ export default function ChatDetail() {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState("")
   const [errorRetryCount, setErrorRetryCount] = useState(0)
+  const [currentChat, setCurrentChat] = useState<Chat | null>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
-  const conversationIdRef = useRef<string>(chatId || `chat-${Date.now()}`)
+  const conversationIdRef = useRef<string>(chatId || "")
+  const hasProcessedInitialMessage = useRef(false)
 
   // Helper function to scroll to bottom
   const scrollToBottom = () => {
@@ -129,12 +74,63 @@ export default function ChatDetail() {
     }
   }, [chatId, setTitle, clearTitle])
 
-  // Load initial messages if they exist
+  // Load chat and messages from database
   useEffect(() => {
-    if (chatId && mockChats[chatId]) {
-      setMessages(mockChats[chatId])
+    const loadChatData = async () => {
+      if (!chatId) {
+        // If no chatId, we'll create a new chat when the first message is sent
+        return
+      }
+
+      try {
+        // Load chat with messages from the API
+        const chat = await chatService.getChat(chatId, true)
+        setCurrentChat(chat)
+        conversationIdRef.current = chat.id
+
+        // Convert API messages to ChatMessage format
+        const loadedMessages: ChatMessage[] = chat.messages.map(msg => ({
+          id: msg.id,
+          type: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          timestamp: new Date(msg.created_at).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit'
+          }),
+          references: msg.citations ? [{
+            id: 'ref-' + msg.id,
+            title: 'Document Reference',
+            type: 'research' as const,
+            sources: msg.citations.length,
+            content: 'Citations from documents'
+          }] : undefined
+        }))
+
+        setMessages(loadedMessages)
+      } catch (error) {
+        console.error('Failed to load chat:', error)
+        // If chat doesn't exist, we'll create it when sending the first message
+        if (chatId) {
+          conversationIdRef.current = chatId
+        }
+      }
     }
+
+    loadChatData()
   }, [chatId])
+
+  // Handle initial message from navigation state
+  useEffect(() => {
+    const initialMessage = location.state?.initialMessage
+    if (initialMessage && chatId && !hasProcessedInitialMessage.current && messages.length === 0) {
+      hasProcessedInitialMessage.current = true
+      // Set the message in the input and trigger send
+      setMessage(initialMessage)
+      setTimeout(() => {
+        handleSendMessage()
+      }, 100)
+    }
+  }, [location.state, chatId, messages.length])
 
   const handleReferenceClick = (reference: Reference) => {
     setSelectedReference(reference)
@@ -152,6 +148,20 @@ export default function ChatDetail() {
       setMessages(prev => [...prev, userMessage])
       setMessage("")
       setIsLoading(true)
+
+      // Create a new chat if we don't have one
+      if (!conversationIdRef.current) {
+        try {
+          const newChat = await chatService.createChat({
+            title: message.trim().substring(0, 50)
+          })
+          conversationIdRef.current = newChat.id
+          setCurrentChat(newChat)
+          setTitle(newChat.title)
+        } catch (error) {
+          console.error('Failed to create chat:', error)
+        }
+      }
       setLoadingMessage("Connecting to AI model...")
       setErrorRetryCount(0)
 

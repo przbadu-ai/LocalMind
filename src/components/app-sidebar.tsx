@@ -20,10 +20,14 @@ import {
   Palette,
   Minus,
   Square,
-  X
+  X,
+  Pin,
+  Archive
 } from "lucide-react"
-import { NavLink, useLocation } from "react-router-dom"
+import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useState, useEffect } from "react"
+import { chatService, type Chat } from "@/services/chat-service"
 
 import {
   Sidebar,
@@ -45,39 +49,40 @@ const navigationItems = [
   { title: "Settings", url: "/settings", icon: Folder },
 ]
 
-const recentItems = [
-  { id: "open-source-rag", icon: MessageSquare, title: "Open-source RAG document tool", url: "/chats/open-source-rag" },
-  { id: "untitled-1", icon: FileText, title: "Untitled", url: "/chats/untitled-1" },
-  { id: "code-critique", icon: Code, title: "Code critique and improvement workflow", url: "/chats/code-critique" },
-  { id: "ollama-override", icon: Globe, title: "Agio Ollama Base URL Override", url: "/chats/ollama-override" }, 
-  { id: "youtube-transcript", icon: Youtube, title: "YouTube Transcript API Script Project", url: "/chats/youtube-transcript" },
-  { id: "streamlit-pdf", icon: Database, title: "Streamlit PDF Chat with EmbedChain...", url: "/chats/streamlit-pdf" },
-  { id: "docker-compose", icon: Database, title: "Docker Compose Vector Database...", url: "/chats/docker-compose" },
-  { id: "huggingface-embedding", icon: Brain, title: "HuggingFace Text Embedding Model...", url: "/chats/huggingface-embedding" },
-  { id: "vllm-model", icon: Cpu, title: "vLLM Model Selection for RTX 5060...", url: "/chats/vllm-model" },
-  { id: "rails-email", icon: Mail, title: "Rails User Email Update Script", url: "/chats/rails-email" },
-  { id: "sql-filtering", icon: Filter, title: "SQL Filtering Non-Numeric Approval...", url: "/chats/sql-filtering" },
-  { id: "rails-api", icon: Upload, title: "Rails API Parameter Permit Upgrade", url: "/chats/rails-api" },
-  { id: "ai-chat-architecture", icon: Building, title: "Open-Source AI Chat App Architecture...", url: "/chats/ai-chat-architecture" },
-  { id: "untitled-2", icon: FileText, title: "Untitled", url: "/chats/untitled-2" },
-  { id: "untitled-3", icon: FileText, title: "Untitled", url: "/chats/untitled-3" },
-  { id: "vllm-server", icon: Server, title: "vLLM Inference Server Setup", url: "/chats/vllm-server" },
-  { id: "metabase-react", icon: Database, title: "Metabase React Dashboard Integration...", url: "/chats/metabase-react" },
-  { id: "untitled-4", icon: FileText, title: "Untitled", url: "/chats/untitled-4" },
-  { id: "comfyui-error", icon: Bug, title: "ComfyUI Model Download Error", url: "/chats/comfyui-error" },
-  { id: "untitled-5", icon: FileText, title: "Untitled", url: "/chats/untitled-5" },
-  { id: "openwebui-clone", icon: Globe, title: "OpenWebUI Clone with Rails 8", url: "/chats/openwebui-clone" },
-  { id: "web-push", icon: Bell, title: "Web Push Notification Troubleshooting...", url: "/chats/web-push" },
-  { id: "responsive-modal", icon: Smartphone, title: "Responsive Modal CSS Media Query", url: "/chats/responsive-modal" },
-  { id: "tailwind-palette", icon: Palette, title: "Tailwind Color Palette Design", url: "/chats/tailwind-palette" },
-  { id: "rails-assets", icon: Upload, title: "Rails App Asset Pipeline Upgrade", url: "/chats/rails-assets" },
-]
-
 export function AppSidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const currentPath = location.pathname
+  const [recentChats, setRecentChats] = useState<Chat[]>([])
+  const [isLoadingChats, setIsLoadingChats] = useState(true)
 
   const isActive = (path: string) => currentPath === path
+
+  // Load recent chats from the database
+  useEffect(() => {
+    const loadRecentChats = async () => {
+      try {
+        setIsLoadingChats(true)
+        const chats = await chatService.getRecentChats(30, false)
+        setRecentChats(chats)
+      } catch (error) {
+        console.error('Failed to load recent chats:', error)
+      } finally {
+        setIsLoadingChats(false)
+      }
+    }
+
+    loadRecentChats()
+
+    // Reload chats when navigating to a new chat
+    const intervalId = setInterval(loadRecentChats, 30000) // Refresh every 30 seconds
+    return () => clearInterval(intervalId)
+  }, [])
+
+  const handleNewChat = () => {
+    // Navigate to home page which has the chat interface for new chats
+    navigate('/')
+  }
 
   const handleMinimize = async () => {
     try {
@@ -147,15 +152,14 @@ export function AppSidebar() {
 
         {/* New chat button */}
         <div className="p-4">
-          <NavLink to={"/"} className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
-            >
-              <Plus className="h-4 w-4" />
-              New chat
-            </Button>
-          </NavLink>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 h-10 bg-primary/10 border-primary/20 hover:bg-primary/20"
+            onClick={handleNewChat}
+          >
+            <Plus className="h-4 w-4" />
+            New chat
+          </Button>
         </div>
       </SidebarHeader>
 
@@ -186,20 +190,35 @@ export function AppSidebar() {
 
         <SidebarGroup>
           <SidebarGroupLabel className="text-sidebar-foreground/60 text-xs font-medium mb-2">
-            Recents
+            Recent Chats
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {recentItems.map((item, index) => (
-                <SidebarMenuItem key={index}>
-                  <SidebarMenuButton asChild className="h-8 text-sm hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground">
-                    <NavLink to={item.url} className="flex items-center gap-2">
-                      <item.icon className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {isLoadingChats ? (
+                <div className="px-3 py-2 text-sm text-sidebar-foreground/60">
+                  Loading chats...
+                </div>
+              ) : recentChats.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-sidebar-foreground/60">
+                  No chats yet. Start a new conversation!
+                </div>
+              ) : (
+                recentChats.map((chat) => (
+                  <SidebarMenuItem key={chat.id}>
+                    <SidebarMenuButton
+                      asChild
+                      className="h-8 text-sm hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                    >
+                      <NavLink to={`/chats/${chat.id}`} className="flex items-center gap-2">
+                        {chat.is_pinned && <Pin className="h-3 w-3 flex-shrink-0" />}
+                        {chat.is_archived && <Archive className="h-3 w-3 flex-shrink-0" />}
+                        <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{chat.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

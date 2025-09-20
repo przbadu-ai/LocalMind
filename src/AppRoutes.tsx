@@ -10,8 +10,9 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/" element={<MainContent />} />
       <Route path="/chats" element={<Chats />} />
-      <Route path="/settings" element={<Settings />} />
+      <Route path="/chat" element={<ChatDetail />} />  {/* New chat without ID */}
       <Route path="/chats/:chatId" element={<ChatDetail />} />
+      <Route path="/settings" element={<Settings />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
