@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useLocation } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react"
+import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw, FolderIcon } from "lucide-react"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
 import { chatService, type Chat, type Message } from "@/services/chat-service"
+import { DocumentSourceManager } from "@/components/documents/DocumentSourceManager"
+import { DocumentStatusIndicator } from "@/components/documents/DocumentStatusIndicator"
+import { FileSystemItem } from "@/services/file-service"
+import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 
 interface ChatMessage {
   id: string
@@ -48,6 +52,17 @@ export default function ChatDetail() {
   const [loadingMessage, setLoadingMessage] = useState("")
   const [errorRetryCount, setErrorRetryCount] = useState(0)
   const [currentChat, setCurrentChat] = useState<Chat | null>(null)
+  const [selectedSources, setSelectedSources] = useState<FileSystemItem[]>([])
+  const [documentStatus, setDocumentStatus] = useState<{
+    total: number;
+    processed: number;
+    indexing: boolean;
+    lastSync?: Date;
+  }>({
+    total: 0,
+    processed: 0,
+    indexing: false
+  })
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
@@ -97,7 +112,7 @@ export default function ChatDetail() {
             hour: 'numeric',
             minute: '2-digit'
           }),
-          references: msg.citations ? [{
+          references: msg.citations && msg.citations.length > 0 ? [{
             id: 'ref-' + msg.id,
             title: 'Document Reference',
             type: 'research' as const,
@@ -369,7 +384,11 @@ export default function ChatDetail() {
                                     <span className="font-medium text-sm">Connection Error</span>
                                   </div>
                                 )}
-                                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                {message.type === 'assistant' ? (
+                                  <MarkdownRenderer content={message.content} />
+                                ) : (
+                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                )}
                                 {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && errorRetryCount < 3 && (
                                   <Button
                                     size="sm"
@@ -433,21 +452,41 @@ export default function ChatDetail() {
 
               {/* Message Input */}
               <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="flex gap-2">
-                  <Input
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder="What's in your mind?"
-                    className="flex-1"
-                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                  />
-                  <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
-                    {isLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
+                <div className="space-y-3">
+                  {/* Document status indicator */}
+                  {selectedSources.length > 0 && (
+                    <DocumentStatusIndicator
+                      status={documentStatus}
+                      compact={true}
+                      className="mb-2"
+                    />
+                  )}
+
+                  {/* Input row */}
+                  <div className="flex gap-2">
+                    <FolderIcon className="h-5 w-5 text-muted-foreground mt-2.5" />
+                    <Input
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      placeholder="Search any files or info..."
+                      className="flex-1"
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    />
+                    <DocumentSourceManager onSourcesChange={useCallback((sources: FileSystemItem[]) => {
+                      setSelectedSources(sources)
+                      setDocumentStatus(prev => ({
+                        ...prev,
+                        total: sources.reduce((acc: number, s: FileSystemItem) => acc + (s.fileCount || 0), 0)
+                      }))
+                    }, [])} />
+                    <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
+                      {isLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

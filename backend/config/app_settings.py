@@ -88,7 +88,7 @@ class AppConfig:
 
     @property
     def llm_model(self) -> str:
-        return self.get('models.llm.default_model', 'llama3:instruct')
+        return self.get('models.llm.default_model', 'gpt-oss:latest')
 
     @property
     def ollama_host(self) -> str:
@@ -201,3 +201,5 @@ DATA_DIR = config.data_dir
 LANCEDB_PATH = config.lancedb_path
 CHUNK_SIZE = config.chunk_size
 CHUNK_OVERLAP = config.chunk_overlap
+DEFAULT_EMBEDDING_MODEL = config.embedding_model
+LANCE_DB_PATH = config.lancedb_path  # Alternative name for compatibility

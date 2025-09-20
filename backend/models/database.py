@@ -52,7 +52,7 @@ class Chat(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Chat settings
-    model = Column(String(100), default="llama3:instruct")
+    model = Column(String(100), default="gpt-oss:latest")
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer, default=2048)
     system_prompt = Column(Text)

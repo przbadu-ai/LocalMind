@@ -47,7 +47,7 @@ class ChatResponse(BaseModel):
     is_archived: bool = False
     is_pinned: bool = False
     tags: List[str] = []
-    model: Optional[str] = "llama3:instruct"
+    model: Optional[str] = "gpt-oss:latest"
 
     class Config:
         from_attributes = True
@@ -63,7 +63,7 @@ class CreateChatRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     system_prompt: Optional[str] = None
-    model: Optional[str] = "llama3:instruct"
+    model: Optional[str] = "gpt-oss:latest"
     temperature: Optional[float] = 0.7
 
 

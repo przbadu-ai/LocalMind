@@ -1,10 +1,12 @@
 import { useState } from "react"
-import { Plus, Send, Code, PenTool, Briefcase, Sparkles, ArrowUp } from "lucide-react"
+import { Plus, Send, Code, PenTool, Briefcase, Sparkles, ArrowUp, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DEFAULT_LLM_MODEL } from "@/config/app-config"
 import { useNavigate } from "react-router-dom"
 import { chatService } from "@/services/chat-service"
+import { DocumentSourceManager } from "@/components/documents/DocumentSourceManager"
+import { FileSystemItem } from "@/services/file-service"
 
 const actionButtons = [
   { icon: Code, label: "Code", variant: "outline" as const },
@@ -15,6 +17,7 @@ const actionButtons = [
 export function MainContent() {
   const [message, setMessage] = useState("")
   const [isCreatingChat, setIsCreatingChat] = useState(false)
+  const [selectedSources, setSelectedSources] = useState<FileSystemItem[]>([])
   const navigate = useNavigate()
 
   const handleSendMessage = async () => {
@@ -61,28 +64,32 @@ export function MainContent() {
           {/* Input Section */}
           <div className="space-y-4">
             <div className="relative">
-              <Input
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="How can I help you today?"
-                className="w-full h-12 pl-4 pr-24 text-base bg-muted/30 border-border focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
-                disabled={isCreatingChat}
-              />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <Plus className="h-4 w-4" />
-                </Button>
+              <div className="flex items-center gap-2 mb-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  placeholder="How can I help you today?"
+                  className="flex-1 h-12 pl-4 pr-4 text-base bg-muted/30 border-border focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+                  disabled={isCreatingChat}
+                />
+                <DocumentSourceManager onSourcesChange={setSelectedSources} />
                 <Button
-                  variant="ghost"
+                  variant="default"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-10 w-10"
                   onClick={handleSendMessage}
                   disabled={isCreatingChat || !message.trim()}
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
+              {selectedSources.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  {selectedSources.length} sources selected
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}

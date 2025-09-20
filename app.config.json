@@ -21,7 +21,7 @@
     },
     "llm": {
       "provider": "ollama",
-      "default_model": "llama3:instruct",
+      "default_model": "gpt-oss:latest",
       "ollama": {
         "host": "192.168.1.173",
         "port": 11434,
