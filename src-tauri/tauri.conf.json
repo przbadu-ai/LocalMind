@@ -21,7 +21,8 @@
         "maximized": false,
         "decorations": false,
         "transparent": false,
-        "center": true
+        "center": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

@@ -102,7 +102,16 @@ export default function ChatDetail() {
   const [loadingMessage, setLoadingMessage] = useState("")
   const [errorRetryCount, setErrorRetryCount] = useState(0)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || `chat-${Date.now()}`)
+
+  // Helper function to scroll to bottom
+  const scrollToBottom = () => {
+    // Use scrollIntoView for more reliable scrolling
+    if (scrollAnchorRef.current) {
+      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }
 
   // Load initial messages if they exist
   useEffect(() => {
@@ -129,6 +138,9 @@ export default function ChatDetail() {
       setIsLoading(true)
       setLoadingMessage("Connecting to AI model...")
       setErrorRetryCount(0)
+
+      // Scroll to bottom when user sends a message
+      requestAnimationFrame(scrollToBottom)
 
       // Create assistant message placeholder
       const assistantMessageId = `msg-${Date.now() + 1}`
@@ -202,6 +214,8 @@ export default function ChatDetail() {
                             ? { ...msg, content: fullResponse }
                             : msg
                         ))
+                        // Scroll to bottom for each chunk - scrollIntoView handles performance
+                        requestAnimationFrame(scrollToBottom)
                       } else if (data.type === 'metadata') {
                         setLoadingMessage("Loading context...")
                         // Handle citations if needed
@@ -231,6 +245,10 @@ export default function ChatDetail() {
 
             // Success - break out of retry loop
             setLoadingMessage("")
+            // Final scroll after streaming completes
+            requestAnimationFrame(() => {
+              requestAnimationFrame(scrollToBottom)
+            })
             break
 
           } catch (error) {
@@ -270,169 +288,188 @@ export default function ChatDetail() {
     }
   }
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or content updates
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
-      }
-    }
+    // Use requestAnimationFrame to ensure DOM is updated
+    requestAnimationFrame(() => {
+      scrollToBottom()
+    })
   }, [messages])
+
+  // Also scroll when loading state changes (for when streaming completes)
+  useEffect(() => {
+    if (!isLoading) {
+      // Double RAF to ensure content is fully rendered
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToBottom()
+        })
+      })
+    }
+  }, [isLoading])
 
   return (
     <div className="h-full flex flex-col">
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* Chat Panel */}
-        <ResizablePanel defaultSize={selectedReference ? 50 : 100} minSize={30}>
-          <div className="h-full flex flex-col">
-            {/* Chat Header */}
-            <div className="p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-              <h2 className="text-lg font-semibold text-foreground">
-                {chatId?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Chat'}
-              </h2>
-            </div>
+      {/* Main Content Area - takes all available space */}
+      <div className="flex-1 overflow-hidden">
+        <ResizablePanelGroup direction="horizontal" className="h-full">
+          {/* Chat Panel */}
+          <ResizablePanel defaultSize={selectedReference ? 50 : 100} minSize={30}>
+            <div className="h-full flex flex-col">
+              {/* Fixed Chat Header */}
+              <div className="flex-shrink-0 p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <h2 className="text-lg font-semibold text-foreground">
+                  {chatId?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Chat'}
+                </h2>
+              </div>
 
-            {/* Messages */}
-            <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-              <div className="space-y-6">
-                {messages.map((message) => (
-                  <div key={message.id} className="space-y-3">
-                    <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                        message.type === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : message.content.includes('Cannot connect') || message.content.includes('Connection failed')
-                          ? 'bg-destructive/10 border border-destructive/20 text-destructive'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {message.type === 'assistant' && message.content === '' && isLoading ? (
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span className="text-sm">{loadingMessage || "Thinking..."}</span>
+              {/* Scrollable Messages */}
+              <div className="flex-1 overflow-hidden">
+                <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
+                  <div className="space-y-6">
+                    {messages.map((message) => (
+                      <div key={message.id} className="space-y-3">
+                        <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                            message.type === 'user'
+                              ? 'bg-muted text-muted-foreground'
+                              : message.content.includes('Cannot connect') || message.content.includes('Connection failed')
+                              ? 'bg-destructive/10 border border-destructive/20 text-destructive'
+                              : ''
+                          }`}>
+                            {message.type === 'assistant' && message.content === '' && isLoading ? (
+                              <div className="flex items-center gap-2">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span className="text-sm">{loadingMessage || "Thinking..."}</span>
+                              </div>
+                            ) : (
+                              <>
+                                {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && (
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <AlertCircle className="h-4 w-4" />
+                                    <span className="font-medium text-sm">Connection Error</span>
+                                  </div>
+                                )}
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="mt-3 h-7 text-xs"
+                                    onClick={() => {
+                                      const lastUserMsg = messages.filter(m => m.type === 'user').pop()
+                                      if (lastUserMsg) {
+                                        setMessage(lastUserMsg.content)
+                                        setMessages(prev => prev.slice(0, -2))
+                                        setTimeout(() => handleSendMessage(), 100)
+                                      }
+                                    }}
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Retry
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                            <p className="text-xs opacity-70 mt-2">{message.timestamp}</p>
                           </div>
-                        ) : (
-                          <>
-                            {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && (
-                              <div className="flex items-center gap-2 mb-2">
-                                <AlertCircle className="h-4 w-4" />
-                                <span className="font-medium text-sm">Connection Error</span>
-                              </div>
-                            )}
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                            {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                        </div>
+
+                        {/* References */}
+                        {message.references && (
+                          <div className="ml-4 space-y-2">
+                            {message.references.map((ref) => (
                               <Button
-                                size="sm"
+                                key={ref.id}
                                 variant="outline"
-                                className="mt-3 h-7 text-xs"
-                                onClick={() => {
-                                  const lastUserMsg = messages.filter(m => m.type === 'user').pop()
-                                  if (lastUserMsg) {
-                                    setMessage(lastUserMsg.content)
-                                    setMessages(prev => prev.slice(0, -2))
-                                    setTimeout(() => handleSendMessage(), 100)
-                                  }
-                                }}
+                                size="sm"
+                                className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                                onClick={() => handleReferenceClick(ref)}
                               >
-                                <RefreshCw className="h-3 w-3 mr-1" />
-                                Retry
+                                <div className="flex items-start gap-3 w-full">
+                                  <FileText className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-foreground">{ref.title}</span>
+                                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className="text-xs text-muted-foreground capitalize">{ref.type}</span>
+                                      <span className="text-xs text-muted-foreground">•</span>
+                                      <span className="text-xs text-muted-foreground">{ref.sources} sources</span>
+                                    </div>
+                                  </div>
+                                </div>
                               </Button>
-                            )}
-                          </>
+                            ))}
+                          </div>
                         )}
-                        <p className="text-xs opacity-70 mt-2">{message.timestamp}</p>
                       </div>
-                    </div>
-
-                    {/* References */}
-                    {message.references && (
-                      <div className="ml-4 space-y-2">
-                        {message.references.map((ref) => (
-                          <Button
-                            key={ref.id}
-                            variant="outline"
-                            size="sm"
-                            className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                            onClick={() => handleReferenceClick(ref)}
-                          >
-                            <div className="flex items-start gap-3 w-full">
-                              <FileText className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium text-foreground">{ref.title}</span>
-                                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-xs text-muted-foreground capitalize">{ref.type}</span>
-                                  <span className="text-xs text-muted-foreground">•</span>
-                                  <span className="text-xs text-muted-foreground">{ref.sources} sources</span>
-                                </div>
-                              </div>
-                            </div>
-                          </Button>
-                        ))}
-                      </div>
-                    )}
+                    ))}
+                    {/* Scroll anchor for auto-scrolling */}
+                    <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
                   </div>
-                ))}
-              </div>
-            </ScrollArea>
-
-            {/* Message Input */}
-            <div className="p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-              <div className="flex gap-2">
-                <Input
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Reply to Claude..."
-                  className="flex-1"
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                />
-                <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </ResizablePanel>
-
-        {/* Document Panel */}
-        {selectedReference && (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={50} minSize={30}>
-              <div className="h-full flex flex-col bg-background">
-                {/* Document Header */}
-                <div className="p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {selectedReference.document?.title || selectedReference.title}
-                  </h3>
-                </div>
-
-                {/* Document Content */}
-                <ScrollArea className="flex-1 p-6">
-                  {selectedReference.document?.sections.map((section, index) => (
-                    <div key={index} className="mb-8">
-                      <h4 className="text-xl font-semibold text-foreground mb-4">
-                        {section.title}
-                      </h4>
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                          {section.content}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
                 </ScrollArea>
               </div>
-            </ResizablePanel>
-          </>
-        )}
-      </ResizablePanelGroup>
+
+              {/* Message Input */}
+              <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <div className="flex gap-2">
+                  <Input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="What's in your mind?"
+                    className="flex-1"
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                  />
+                  <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </ResizablePanel>
+
+          {/* Document Panel */}
+          {selectedReference && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={50} minSize={30}>
+                <div className="h-full flex flex-col bg-background">
+                  {/* Document Header */}
+                  <div className="flex-shrink-0 p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {selectedReference.document?.title || selectedReference.title}
+                    </h3>
+                  </div>
+
+                  {/* Scrollable Document Content */}
+                  <div className="flex-1 overflow-hidden">
+                    <ScrollArea className="h-full p-6">
+                      {selectedReference.document?.sections.map((section, index) => (
+                        <div key={index} className="mb-8">
+                          <h4 className="text-xl font-semibold text-foreground mb-4">
+                            {section.title}
+                          </h4>
+                          <div className="prose prose-sm dark:prose-invert max-w-none">
+                            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                              {section.content}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </ScrollArea>
+                  </div>
+                </div>
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+      </div>
     </div>
   )
 }

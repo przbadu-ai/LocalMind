@@ -17,11 +17,13 @@ const App = () => (
         <Toaster />
         <HashRouter>
           <SidebarProvider>
-            <div className="min-h-screen flex w-full">
+            <div className="h-screen flex w-full">
               <AppSidebar />
-              <div className="flex flex-col flex-1">
+              <div className="flex flex-col flex-1 h-screen">
                 <AppHeader />
-                <AppRoutes />
+                <div className="flex-1 overflow-hidden">
+                  <AppRoutes />
+                </div>
               </div>
             </div>
           </SidebarProvider>
