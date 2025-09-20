@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react"
+import { useHeaderStore } from "@/stores/useHeaderStore"
 
 interface ChatMessage {
   id: string
@@ -95,6 +96,7 @@ const mockChats: Record<string, ChatMessage[]> = {
 
 export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
+  const { setTitle, clearTitle } = useHeaderStore()
   const [selectedReference, setSelectedReference] = useState<Reference | null>(null)
   const [message, setMessage] = useState("")
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -112,6 +114,19 @@ export default function ChatDetail() {
       scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
   }
+
+  // Set the header title based on chatId
+  useEffect(() => {
+    if (chatId) {
+      const formattedTitle = chatId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+      setTitle(formattedTitle)
+    }
+
+    // Clear title on unmount
+    return () => {
+      clearTitle()
+    }
+  }, [chatId, setTitle, clearTitle])
 
   // Load initial messages if they exist
   useEffect(() => {
@@ -316,13 +331,6 @@ export default function ChatDetail() {
           {/* Chat Panel */}
           <ResizablePanel defaultSize={selectedReference ? 50 : 100} minSize={30}>
             <div className="h-full flex flex-col">
-              {/* Fixed Chat Header */}
-              <div className="flex-shrink-0 p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {chatId?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Chat'}
-                </h2>
-              </div>
-
               {/* Scrollable Messages */}
               <div className="flex-1 overflow-hidden">
                 <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
