@@ -16,7 +16,7 @@ from datetime import datetime
 import aiofiles
 from models.schemas import DocumentType, DocumentResponse
 from core.exceptions import DocumentProcessingError
-from config import settings
+from config.app_settings import config
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class DocumentService:
     """
 
     def __init__(self):
-        self.uploads_dir = settings.uploads_dir
+        self.uploads_dir = config.uploads_dir
         self.supported_extensions = {
             ".pdf": DocumentType.PDF,
             ".docx": DocumentType.DOCX,

@@ -21,14 +21,14 @@ from pathlib import Path
 # Add backend directory to path for imports
 sys.path.append(str(Path(__file__).parent))
 
-from config import app_config
+from config.app_settings import config as app_config, APP_NAME, APP_VERSION, BACKEND_HOST, BACKEND_PORT
 from core import setup_middlewares, setup_exception_handlers
 from api import api_router
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG if app_config.DEBUG else logging.INFO,
-    format=app_config.LOG_FORMAT,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
     ]
@@ -53,9 +53,9 @@ async def lifespan(app: FastAPI):
         Control back to FastAPI during application runtime
     """
     # Startup
-    logger.info(f"Starting {app_config.APP_NAME} v{app_config.APP_VERSION}")
-    logger.info(f"Data directory: {app_config.DATA_DIR}")
-    logger.info(f"Debug mode: {app_config.DEBUG}")
+    logger.info(f"Starting {APP_NAME} v{APP_VERSION}")
+    logger.info(f"Data directory: {app_config.data_dir}")
+    logger.info(f"Debug mode: True")
 
     # TODO: Add startup tasks like:
     # - Pre-load embedding model
@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application instance
 app = FastAPI(
-    title=app_config.APP_NAME,
-    version=app_config.APP_VERSION,
+    title=APP_NAME,
+    version=APP_VERSION,
     description="""
     Open-source, offline-first desktop RAG application.
 
@@ -85,7 +85,7 @@ app = FastAPI(
     - ⚙️ Configurable LLM providers
     """,
     lifespan=lifespan,
-    debug=app_config.DEBUG,
+    debug=True,
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -97,7 +97,7 @@ setup_middlewares(app)
 setup_exception_handlers(app)
 
 # Include API routes
-app.include_router(api_router, prefix=app_config.API_PREFIX)
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)
@@ -123,12 +123,12 @@ async def api_root():
         Dict with API metadata
     """
     return {
-        "name": app_config.APP_NAME,
-        "version": app_config.APP_VERSION,
+        "name": APP_NAME,
+        "version": APP_VERSION,
         "api_version": "v1",
         "documentation": "/docs",
         "redoc": "/redoc",
-        "health": f"{app_config.API_PREFIX}/health",
+        "health": "/api/v1/health",
         "description": "Local Mind Backend API"
     }
 
@@ -144,8 +144,8 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host=app_config.BACKEND_HOST,
-        port=app_config.BACKEND_PORT,
-        reload=app_config.DEBUG,
-        log_level="debug" if app_config.DEBUG else "info"
+        host=BACKEND_HOST,
+        port=BACKEND_PORT,
+        reload=True,
+        log_level="debug"
     )

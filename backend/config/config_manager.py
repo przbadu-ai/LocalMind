@@ -6,6 +6,9 @@ locations, providing a consistent interface across Windows, macOS, and Linux.
 
 The configuration is stored as JSON for easy editing and portability.
 Settings are automatically created with defaults on first run.
+
+NOTE: Default values come from app.config.json via app_settings.py
+This module manages user overrides that persist across sessions.
 """
 
 import json
@@ -14,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import platform
 from pydantic import BaseModel
+from .app_settings import config as app_config
 
 
 class UserConfig(BaseModel):
@@ -48,18 +52,18 @@ class UserConfig(BaseModel):
         )
         ```
     """
-    # Model settings
-    embedding_model: str = "all-MiniLM-L6-v2"
-    llm_provider: str = "ollama"  # ollama, openai, llamacpp, etc.
-    ollama_base_url: str = "http://192.168.1.173:11434"  # Base URL without /v1
-    ollama_model: str = "gpt-oss:latest"
+    # Model settings (defaults from app.config.json)
+    embedding_model: str = app_config.embedding_model
+    llm_provider: str = app_config.llm_provider
+    ollama_base_url: str = app_config.ollama_base_url
+    ollama_model: str = app_config.llm_model
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-3.5-turbo"
 
-    # Document processing
-    chunk_size: int = 512
-    chunk_overlap: int = 50
-    max_file_size_mb: int = 50
+    # Document processing (defaults from app.config.json)
+    chunk_size: int = app_config.chunk_size
+    chunk_overlap: int = app_config.chunk_overlap
+    max_file_size_mb: int = 100  # From app.config.json storage settings
 
     # Advanced settings
     additional_hosts: list = []

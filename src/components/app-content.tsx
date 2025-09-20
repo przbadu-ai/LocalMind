@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Plus, Search, Code, PenTool, Briefcase, Sparkles, ArrowUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DEFAULT_LLM_MODEL } from "@/config/app-config"
 
 const actionButtons = [
   { icon: Code, label: "Code", variant: "outline" as const },
@@ -62,7 +63,7 @@ export function MainContent() {
             {/* Version info */}
             <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground pt-4">
               <span className="flex items-center gap-2">
-                openai/gpt-oss-20b
+                {DEFAULT_LLM_MODEL}
                 <ArrowUp className="h-3 w-3" />
               </span>
             </div>

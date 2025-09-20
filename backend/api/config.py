@@ -7,7 +7,7 @@ testing LLM connections, and managing application preferences.
 
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
-from config import settings
+from config.settings import settings
 import logging
 
 logger = logging.getLogger(__name__)

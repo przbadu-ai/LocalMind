@@ -1,0 +1,59 @@
+{
+  "app": {
+    "name": "Local Mind",
+    "version": "0.1.0",
+    "description": "Open-source, offline-first desktop RAG application"
+  },
+  "backend": {
+    "host": "127.0.0.1",
+    "port": 52817,
+    "api_base_url": "http://127.0.0.1:52817",
+    "cors_origins": [
+      "http://localhost:1420",
+      "tauri://localhost",
+      "http://192.168.1.173:1420"
+    ]
+  },
+  "models": {
+    "embedding": {
+      "default": "all-MiniLM-L6-v2",
+      "options": ["all-MiniLM-L6-v2", "all-mpnet-base-v2"]
+    },
+    "llm": {
+      "provider": "ollama",
+      "default_model": "llama3:instruct",
+      "ollama": {
+        "host": "192.168.1.173",
+        "port": 11434,
+        "base_url": "http://192.168.1.173:11434",
+        "models": ["llama3:instruct", "gpt-oss:latest", "llama2", "mistral"]
+      },
+      "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "models": ["gpt-3.5-turbo", "gpt-4"]
+      },
+      "llamacpp": {
+        "host": "192.168.1.171",
+        "port": 8080,
+        "base_url": "http://192.168.1.171:8080"
+      }
+    }
+  },
+  "storage": {
+    "data_dir": "./data",
+    "lancedb_path": "./data/lancedb",
+    "documents_path": "./data/documents",
+    "max_upload_size_mb": 100
+  },
+  "processing": {
+    "chunk_size": 500,
+    "chunk_overlap": 50,
+    "max_chunks_per_query": 10
+  },
+  "features": {
+    "enable_position_tracking": true,
+    "enable_citations": true,
+    "enable_highlighting": true,
+    "enable_offline_mode": true
+  }
+}

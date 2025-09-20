@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from openai import AsyncOpenAI
 from models.schemas import ChatRequest, ChatResponse, Citation, SearchQuery
 from services.vector_service import VectorService
-from config import app_config
+from config.app_settings import config as app_config, OLLAMA_BASE_URL, LLM_MODEL
 from core.exceptions import LLMConnectionError
 import logging
 

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react"
 import { useHeaderStore } from "@/stores/useHeaderStore"
+import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
 
 interface ChatMessage {
   id: string
@@ -180,7 +181,7 @@ export default function ChatDetail() {
               await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
             }
 
-            const response = await fetch('http://localhost:52817/api/v1/chat/stream', {
+            const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -282,9 +283,9 @@ export default function ChatDetail() {
           let userFriendlyMessage = ''
 
           if (errorMessage.includes('ollama_connection_failed')) {
-            userFriendlyMessage = 'Cannot connect to Ollama. Please ensure:\n• Ollama is installed and running\n• The model is downloaded (gpt-oss:latest)\n• The server is accessible at http://192.168.1.173:11434'
+            userFriendlyMessage = `Cannot connect to Ollama. Please ensure:\n• Ollama is installed and running\n• The model is downloaded (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
           } else if (errorMessage.includes('fetch')) {
-            userFriendlyMessage = 'Cannot connect to the backend server. Please ensure:\n• The backend server is running on port 52817\n• Run: cd backend && python main.py'
+            userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python main.py`
           } else {
             userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• Ollama service is active\n• Network connectivity`
           }

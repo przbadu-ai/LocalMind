@@ -7,7 +7,7 @@ checking service dependencies, and retrieving system information.
 
 from fastapi import APIRouter
 from models.schemas import HealthCheck
-from config import settings
+from config.settings import settings
 from services import VectorService
 import logging
 

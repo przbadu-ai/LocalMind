@@ -9,7 +9,7 @@ import lancedb
 from typing import List, Dict, Any, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from config import settings
+from config.settings import settings
 from core.exceptions import VectorStoreError
 from models.schemas import SearchQuery, SearchResult, DocumentMetadata
 import logging
