@@ -2,7 +2,7 @@
   "app": {
     "name": "Local Mind",
     "version": "0.1.0",
-    "description": "Open-source, offline-first desktop RAG application"
+    "description": "AI chat application with YouTube transcription and MCP support"
   },
   "backend": {
     "host": "127.0.0.1",
@@ -41,19 +41,11 @@
   },
   "storage": {
     "data_dir": "./data",
-    "lancedb_path": "./data/lancedb",
-    "documents_path": "./data/documents",
-    "max_upload_size_mb": 100
-  },
-  "processing": {
-    "chunk_size": 500,
-    "chunk_overlap": 50,
-    "max_chunks_per_query": 10
+    "database_path": "./data/local_mind.db"
   },
   "features": {
-    "enable_position_tracking": true,
-    "enable_citations": true,
-    "enable_highlighting": true,
+    "enable_youtube": true,
+    "enable_mcp": true,
     "enable_offline_mode": true
   }
 }

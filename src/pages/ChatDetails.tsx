@@ -1,68 +1,60 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams, useLocation } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, FileText, ExternalLink, Loader2, AlertCircle, RefreshCw, FolderIcon } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink } from "lucide-react"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
-import { chatService, type Chat, type Message } from "@/services/chat-service"
-import { DocumentSourceManager } from "@/components/documents/DocumentSourceManager"
-import { DocumentStatusIndicator } from "@/components/documents/DocumentStatusIndicator"
-import { FileSystemItem } from "@/services/file-service"
+import { chatService, type Chat } from "@/services/chat-service"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
+import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
 
 interface ChatMessage {
   id: string
   type: 'user' | 'assistant'
   content: string
   timestamp: string
-  references?: Reference[]
+  artifactType?: 'youtube' | 'pdf' | 'image'
+  artifactData?: {
+    video_id?: string
+    url?: string
+    transcript_available?: boolean
+    error?: string
+  }
 }
 
-interface Reference {
-  id: string
-  title: string
-  type: 'document' | 'research'
-  sources: number
-  content: string
-  document?: Document
+interface TranscriptData {
+  video_id: string
+  video_url: string
+  language_code: string
+  is_generated: boolean
+  segments: TranscriptSegment[]
+  full_text: string
 }
-
-interface Document {
-  title: string
-  sections: DocumentSection[]
-}
-
-interface DocumentSection {
-  title: string
-  content: string
-}
-
 
 export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
   const location = useLocation()
   const { setTitle, clearTitle } = useHeaderStore()
-  const [selectedReference, setSelectedReference] = useState<Reference | null>(null)
+
+  // Chat state
   const [message, setMessage] = useState("")
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState("")
   const [errorRetryCount, setErrorRetryCount] = useState(0)
   const [currentChat, setCurrentChat] = useState<Chat | null>(null)
-  const [selectedSources, setSelectedSources] = useState<FileSystemItem[]>([])
-  const [documentStatus, setDocumentStatus] = useState<{
-    total: number;
-    processed: number;
-    indexing: boolean;
-    lastSync?: Date;
-  }>({
-    total: 0,
-    processed: 0,
-    indexing: false
-  })
+
+  // YouTube state
+  const [currentVideoId, setCurrentVideoId] = useState<string | null>(null)
+  const [currentTranscript, setCurrentTranscript] = useState<TranscriptData | null>(null)
+  const [transcriptError, setTranscriptError] = useState<string | null>(null)
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0)
+
+  // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
@@ -70,7 +62,6 @@ export default function ChatDetail() {
 
   // Helper function to scroll to bottom
   const scrollToBottom = () => {
-    // Use scrollIntoView for more reliable scrolling
     if (scrollAnchorRef.current) {
       scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
@@ -83,7 +74,6 @@ export default function ChatDetail() {
       setTitle(formattedTitle)
     }
 
-    // Clear title on unmount
     return () => {
       clearTitle()
     }
@@ -92,18 +82,13 @@ export default function ChatDetail() {
   // Load chat and messages from database
   useEffect(() => {
     const loadChatData = async () => {
-      if (!chatId) {
-        // If no chatId, we'll create a new chat when the first message is sent
-        return
-      }
+      if (!chatId) return
 
       try {
-        // Load chat with messages from the API
         const chat = await chatService.getChat(chatId, true)
         setCurrentChat(chat)
         conversationIdRef.current = chat.id
 
-        // Convert API messages to ChatMessage format
         const loadedMessages: ChatMessage[] = chat.messages.map(msg => ({
           id: msg.id,
           type: msg.role as 'user' | 'assistant',
@@ -112,19 +97,23 @@ export default function ChatDetail() {
             hour: 'numeric',
             minute: '2-digit'
           }),
-          references: msg.citations && msg.citations.length > 0 ? [{
-            id: 'ref-' + msg.id,
-            title: 'Document Reference',
-            type: 'research' as const,
-            sources: msg.citations.length,
-            content: 'Citations from documents'
-          }] : undefined
+          artifactType: msg.artifact_type,
+          artifactData: msg.artifact_data,
         }))
 
         setMessages(loadedMessages)
+
+        // Check for YouTube artifacts in messages
+        const youtubeMessage = loadedMessages.find(m => m.artifactType === 'youtube' && m.artifactData?.video_id)
+        if (youtubeMessage?.artifactData?.video_id) {
+          setCurrentVideoId(youtubeMessage.artifactData.video_id)
+          // Load transcript if available
+          if (youtubeMessage.artifactData.transcript_available) {
+            fetchTranscript(youtubeMessage.artifactData.video_id)
+          }
+        }
       } catch (error) {
         console.error('Failed to load chat:', error)
-        // If chat doesn't exist, we'll create it when sending the first message
         if (chatId) {
           conversationIdRef.current = chatId
         }
@@ -139,7 +128,6 @@ export default function ChatDetail() {
     const initialMessage = location.state?.initialMessage
     if (initialMessage && chatId && !hasProcessedInitialMessage.current && messages.length === 0) {
       hasProcessedInitialMessage.current = true
-      // Set the message in the input and trigger send
       setMessage(initialMessage)
       setTimeout(() => {
         handleSendMessage()
@@ -147,8 +135,29 @@ export default function ChatDetail() {
     }
   }, [location.state, chatId, messages.length])
 
-  const handleReferenceClick = (reference: Reference) => {
-    setSelectedReference(reference)
+  // Fetch transcript for a video
+  const fetchTranscript = async (videoId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/youtube/transcript/${videoId}`)
+      const data = await response.json()
+
+      if (data.success && data.transcript) {
+        setCurrentTranscript(data.transcript)
+        setTranscriptError(null)
+      } else {
+        setTranscriptError(data.error_help || data.error_message || 'Failed to load transcript')
+      }
+    } catch (error) {
+      setTranscriptError('Failed to fetch transcript')
+    }
+  }
+
+  // Close video panel
+  const handleCloseVideo = () => {
+    setCurrentVideoId(null)
+    setCurrentTranscript(null)
+    setTranscriptError(null)
+    setCurrentPlaybackTime(0)
   }
 
   const handleSendMessage = async () => {
@@ -177,10 +186,9 @@ export default function ChatDetail() {
           console.error('Failed to create chat:', error)
         }
       }
+
       setLoadingMessage("Connecting to AI model...")
       setErrorRetryCount(0)
-
-      // Scroll to bottom when user sends a message
       requestAnimationFrame(scrollToBottom)
 
       // Create assistant message placeholder
@@ -214,9 +222,8 @@ export default function ChatDetail() {
               body: JSON.stringify({
                 message: userMessage.content,
                 conversation_id: conversationIdRef.current,
-                include_citations: false,
                 temperature: 0.7,
-                max_results: 5
+                include_transcript: true,
               }),
             })
 
@@ -255,20 +262,48 @@ export default function ChatDetail() {
                             ? { ...msg, content: fullResponse }
                             : msg
                         ))
-                        // Scroll to bottom for each chunk - scrollIntoView handles performance
                         requestAnimationFrame(scrollToBottom)
-                      } else if (data.type === 'metadata') {
-                        setLoadingMessage("Loading context...")
-                        // Handle citations if needed
-                        if (data.citations && data.citations.length > 0) {
+                      } else if (data.type === 'youtube_detected') {
+                        setCurrentVideoId(data.video_id)
+                        setLoadingMessage("Fetching video transcript...")
+                        // Update user message with artifact data
+                        setMessages(prev => prev.map(msg =>
+                          msg.id === userMessage.id
+                            ? {
+                                ...msg,
+                                artifactType: 'youtube',
+                                artifactData: {
+                                  video_id: data.video_id,
+                                  url: data.url,
+                                }
+                              }
+                            : msg
+                        ))
+                      } else if (data.type === 'transcript_status') {
+                        if (data.success) {
+                          fetchTranscript(data.video_id)
                           setMessages(prev => prev.map(msg =>
-                            msg.id === assistantMessageId
-                              ? { ...msg, references: data.citations }
+                            msg.id === userMessage.id && msg.artifactData
+                              ? {
+                                  ...msg,
+                                  artifactData: {
+                                    ...msg.artifactData,
+                                    transcript_available: true,
+                                  }
+                                }
                               : msg
                           ))
+                        } else {
+                          setTranscriptError(data.error_message || 'Failed to load transcript')
+                        }
+                        setLoadingMessage("")
+                      } else if (data.type === 'done') {
+                        // Update conversation ID if new
+                        if (data.conversation_id) {
+                          conversationIdRef.current = data.conversation_id
                         }
                       } else if (data.type === 'error') {
-                        if (data.error.toLowerCase().includes('ollama')) {
+                        if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {
                           throw new Error('ollama_connection_failed')
                         }
                         throw new Error(data.error)
@@ -286,7 +321,6 @@ export default function ChatDetail() {
 
             // Success - break out of retry loop
             setLoadingMessage("")
-            // Final scroll after streaming completes
             requestAnimationFrame(() => {
               requestAnimationFrame(scrollToBottom)
             })
@@ -308,11 +342,11 @@ export default function ChatDetail() {
           let userFriendlyMessage = ''
 
           if (errorMessage.includes('ollama_connection_failed')) {
-            userFriendlyMessage = `Cannot connect to Ollama. Please ensure:\n• Ollama is installed and running\n• The model is downloaded (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
+            userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
           } else if (errorMessage.includes('fetch')) {
-            userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python main.py`
+            userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python -m backend.main`
           } else {
-            userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• Ollama service is active\n• Network connectivity`
+            userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• LLM service is active\n• Network connectivity`
           }
 
           setMessages(prev => prev.map(msg =>
@@ -329,18 +363,15 @@ export default function ChatDetail() {
     }
   }
 
-  // Auto-scroll to bottom when new messages arrive or content updates
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    // Use requestAnimationFrame to ensure DOM is updated
     requestAnimationFrame(() => {
       scrollToBottom()
     })
   }, [messages])
 
-  // Also scroll when loading state changes (for when streaming completes)
   useEffect(() => {
     if (!isLoading) {
-      // Double RAF to ensure content is fully rendered
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           scrollToBottom()
@@ -349,47 +380,49 @@ export default function ChatDetail() {
     }
   }, [isLoading])
 
+  // Determine if we should show two-column layout
+  const hasVideoArtifact = currentVideoId !== null
+
   return (
     <div className="h-full flex flex-col">
-      {/* Main Content Area - takes all available space */}
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           {/* Chat Panel */}
-          <ResizablePanel defaultSize={selectedReference ? 50 : 100} minSize={30}>
+          <ResizablePanel defaultSize={hasVideoArtifact ? 50 : 100} minSize={30}>
             <div className="h-full flex flex-col">
               {/* Scrollable Messages */}
               <div className="flex-1 overflow-hidden">
                 <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
                   <div className="space-y-6">
-                    {messages.map((message) => (
-                      <div key={message.id} className="space-y-3">
-                        <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {messages.map((msg) => (
+                      <div key={msg.id} className="space-y-3">
+                        <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                            message.type === 'user'
+                            msg.type === 'user'
                               ? 'bg-muted text-muted-foreground'
-                              : message.content.includes('Cannot connect') || message.content.includes('Connection failed')
+                              : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
                               ? 'bg-destructive/10 border border-destructive/20 text-destructive'
                               : ''
                           }`}>
-                            {message.type === 'assistant' && message.content === '' && isLoading ? (
+                            {msg.type === 'assistant' && msg.content === '' && isLoading ? (
                               <div className="flex items-center gap-2">
                                 <Loader2 className="h-3 w-3 animate-spin" />
                                 <span className="text-sm">{loadingMessage || "Thinking..."}</span>
                               </div>
                             ) : (
                               <>
-                                {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && (
+                                {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && (
                                   <div className="flex items-center gap-2 mb-2">
                                     <AlertCircle className="h-4 w-4" />
                                     <span className="font-medium text-sm">Connection Error</span>
                                   </div>
                                 )}
-                                {message.type === 'assistant' ? (
-                                  <MarkdownRenderer content={message.content} />
+                                {msg.type === 'assistant' ? (
+                                  <MarkdownRenderer content={msg.content} />
                                 ) : (
-                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                 )}
-                                {message.type === 'assistant' && (message.content.includes('Cannot connect') || message.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                                {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -409,42 +442,38 @@ export default function ChatDetail() {
                                 )}
                               </>
                             )}
-                            <p className="text-xs opacity-70 mt-2">{message.timestamp}</p>
+                            <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
                           </div>
                         </div>
 
-                        {/* References */}
-                        {message.references && (
-                          <div className="ml-4 space-y-2">
-                            {message.references.map((ref) => (
-                              <Button
-                                key={ref.id}
-                                variant="outline"
-                                size="sm"
-                                className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                                onClick={() => handleReferenceClick(ref)}
-                              >
-                                <div className="flex items-start gap-3 w-full">
-                                  <FileText className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium text-foreground">{ref.title}</span>
-                                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <span className="text-xs text-muted-foreground capitalize">{ref.type}</span>
-                                      <span className="text-xs text-muted-foreground">•</span>
-                                      <span className="text-xs text-muted-foreground">{ref.sources} sources</span>
-                                    </div>
+                        {/* YouTube artifact indicator */}
+                        {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
+                          <div className="ml-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                              onClick={() => {
+                                setCurrentVideoId(msg.artifactData!.video_id!)
+                                if (msg.artifactData!.transcript_available) {
+                                  fetchTranscript(msg.artifactData!.video_id!)
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Youtube className="h-4 w-4 text-red-500" />
+                                <div>
+                                  <span className="text-sm font-medium">YouTube Video</span>
+                                  <div className="text-xs text-muted-foreground">
+                                    {msg.artifactData.transcript_available ? 'Transcript available' : 'No transcript'}
                                   </div>
                                 </div>
-                              </Button>
-                            ))}
+                              </div>
+                            </Button>
                           </div>
                         )}
                       </div>
                     ))}
-                    {/* Scroll anchor for auto-scrolling */}
                     <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
                   </div>
                 </ScrollArea>
@@ -452,76 +481,136 @@ export default function ChatDetail() {
 
               {/* Message Input */}
               <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="space-y-3">
-                  {/* Document status indicator */}
-                  {selectedSources.length > 0 && (
-                    <DocumentStatusIndicator
-                      status={documentStatus}
-                      compact={true}
-                      className="mb-2"
-                    />
-                  )}
-
-                  {/* Input row */}
-                  <div className="flex gap-2">
-                    <FolderIcon className="h-5 w-5 text-muted-foreground mt-2.5" />
-                    <Input
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Search any files or info..."
-                      className="flex-1"
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                    />
-                    <DocumentSourceManager onSourcesChange={useCallback((sources: FileSystemItem[]) => {
-                      setSelectedSources(sources)
-                      setDocumentStatus(prev => ({
-                        ...prev,
-                        total: sources.reduce((acc: number, s: FileSystemItem) => acc + (s.fileCount || 0), 0)
-                      }))
-                    }, [])} />
-                    <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
-                      {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Send a message or paste a YouTube URL..."
+                    className="flex-1"
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                  />
+                  <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
               </div>
             </div>
           </ResizablePanel>
 
-          {/* Document Panel */}
-          {selectedReference && (
+          {/* Video/Transcript Panel */}
+          {hasVideoArtifact && (
             <>
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={30}>
                 <div className="h-full flex flex-col bg-background">
-                  {/* Document Header */}
-                  <div className="flex-shrink-0 p-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                    <h3 className="text-lg font-semibold text-foreground">
-                      {selectedReference.document?.title || selectedReference.title}
-                    </h3>
+                  {/* Panel Header */}
+                  <div className="flex-shrink-0 p-3 border-b border-border flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Youtube className="h-5 w-5 text-red-500" />
+                      <span className="font-medium">YouTube Video</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                      >
+                        <a
+                          href={`https://www.youtube.com/watch?v=${currentVideoId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="h-4 w-4 mr-1" />
+                          Open
+                        </a>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={handleCloseVideo}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
 
-                  {/* Scrollable Document Content */}
-                  <div className="flex-1 overflow-hidden">
-                    <ScrollArea className="h-full p-6">
-                      {selectedReference.document?.sections.map((section, index) => (
-                        <div key={index} className="mb-8">
-                          <h4 className="text-xl font-semibold text-foreground mb-4">
-                            {section.title}
-                          </h4>
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                              {section.content}
+                  {/* Video Player */}
+                  <div className="flex-shrink-0 p-3">
+                    <YouTubePlayer
+                      videoId={currentVideoId}
+                      onTimeUpdate={setCurrentPlaybackTime}
+                    />
+                  </div>
+
+                  {/* Transcript Tabs */}
+                  <Tabs defaultValue="transcript" className="flex-1 flex flex-col overflow-hidden">
+                    <TabsList className="mx-3">
+                      <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                      <TabsTrigger value="info">Info</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
+                      {currentTranscript ? (
+                        <TranscriptViewer
+                          segments={currentTranscript.segments}
+                          currentTime={currentPlaybackTime}
+                        />
+                      ) : transcriptError ? (
+                        <div className="p-4">
+                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <AlertCircle className="h-4 w-4 text-destructive" />
+                              <span className="font-medium text-destructive">Transcript Unavailable</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                              {transcriptError}
                             </p>
                           </div>
                         </div>
-                      ))}
-                    </ScrollArea>
-                  </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="info" className="flex-1 overflow-hidden mt-0 p-4">
+                      {currentTranscript && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="bg-muted/50 rounded-lg p-3 text-center">
+                              <p className="text-2xl font-bold">
+                                {currentTranscript.segments.length}
+                              </p>
+                              <p className="text-xs text-muted-foreground">Segments</p>
+                            </div>
+                            <div className="bg-muted/50 rounded-lg p-3 text-center">
+                              <p className="text-2xl font-bold">
+                                {currentTranscript.language_code.toUpperCase()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">Language</p>
+                            </div>
+                            <div className="bg-muted/50 rounded-lg p-3 text-center">
+                              <p className="text-2xl font-bold">
+                                {currentTranscript.is_generated ? 'Auto' : 'Manual'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">Type</p>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">
+                              Video ID: {currentVideoId}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </ResizablePanel>
             </>

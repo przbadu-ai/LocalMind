@@ -1,23 +1,7 @@
 import {
   MessageSquare,
   Plus,
-  Folder,
-  FileText,
-  Code,
-  Globe,
-  Youtube,
-  Database,
-  Brain,
-  Cpu,
-  Mail,
-  Filter,
-  Upload,
-  Building,
-  Server,
-  Bug,
-  Bell,
-  Smartphone,
-  Palette,
+  Settings,
   Minus,
   Square,
   X,
@@ -46,7 +30,7 @@ import { Button } from "@/components/ui/button"
 
 const navigationItems = [
   { title: "Chats", url: "/chats", icon: MessageSquare },
-  { title: "Settings", url: "/settings", icon: Folder },
+  { title: "Settings", url: "/settings", icon: Settings },
 ]
 
 export function AppSidebar() {

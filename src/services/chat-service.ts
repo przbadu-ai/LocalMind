@@ -31,6 +31,13 @@ export interface Message {
   citations?: any[];
   tokens_used?: number;
   confidence_score?: number;
+  artifact_type?: 'youtube' | 'pdf' | 'image';
+  artifact_data?: {
+    video_id?: string;
+    url?: string;
+    transcript_available?: boolean;
+    error?: string;
+  };
 }
 
 export interface ChatWithMessages extends Chat {
