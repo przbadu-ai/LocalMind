@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useLocation } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
@@ -53,12 +53,14 @@ export default function ChatDetail() {
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptData | null>(null)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0)
+  const [isTranscriptLoading, setIsTranscriptLoading] = useState(false)
 
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
   const hasProcessedInitialMessage = useRef(false)
+  const chatDataLoaded = useRef(false)
 
   // Helper function to scroll to bottom
   const scrollToBottom = () => {
@@ -79,15 +81,36 @@ export default function ChatDetail() {
     }
   }, [chatId, setTitle, clearTitle])
 
+  // Fetch transcript for a video
+  const fetchTranscript = useCallback(async (videoId: string) => {
+    setIsTranscriptLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/youtube/transcript/${videoId}`)
+      const data = await response.json()
+
+      if (data.success && data.transcript) {
+        setCurrentTranscript(data.transcript)
+        setTranscriptError(null)
+      } else {
+        setTranscriptError(data.error_help || data.error_message || 'Failed to load transcript')
+      }
+    } catch (error) {
+      setTranscriptError('Failed to fetch transcript')
+    } finally {
+      setIsTranscriptLoading(false)
+    }
+  }, [])
+
   // Load chat and messages from database
   useEffect(() => {
     const loadChatData = async () => {
-      if (!chatId) return
+      if (!chatId || chatDataLoaded.current) return
 
       try {
         const chat = await chatService.getChat(chatId, true)
         setCurrentChat(chat)
         conversationIdRef.current = chat.id
+        chatDataLoaded.current = true
 
         const loadedMessages: ChatMessage[] = chat.messages.map(msg => ({
           id: msg.id,
@@ -103,14 +126,12 @@ export default function ChatDetail() {
 
         setMessages(loadedMessages)
 
-        // Check for YouTube artifacts in messages
+        // Check for YouTube artifacts in messages and always try to load transcript
         const youtubeMessage = loadedMessages.find(m => m.artifactType === 'youtube' && m.artifactData?.video_id)
         if (youtubeMessage?.artifactData?.video_id) {
           setCurrentVideoId(youtubeMessage.artifactData.video_id)
-          // Load transcript if available
-          if (youtubeMessage.artifactData.transcript_available) {
-            fetchTranscript(youtubeMessage.artifactData.video_id)
-          }
+          // Always try to fetch transcript when loading a YouTube chat
+          fetchTranscript(youtubeMessage.artifactData.video_id)
         }
       } catch (error) {
         console.error('Failed to load chat:', error)
@@ -121,36 +142,7 @@ export default function ChatDetail() {
     }
 
     loadChatData()
-  }, [chatId])
-
-  // Handle initial message from navigation state
-  useEffect(() => {
-    const initialMessage = location.state?.initialMessage
-    if (initialMessage && chatId && !hasProcessedInitialMessage.current && messages.length === 0) {
-      hasProcessedInitialMessage.current = true
-      setMessage(initialMessage)
-      setTimeout(() => {
-        handleSendMessage()
-      }, 100)
-    }
-  }, [location.state, chatId, messages.length])
-
-  // Fetch transcript for a video
-  const fetchTranscript = async (videoId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/youtube/transcript/${videoId}`)
-      const data = await response.json()
-
-      if (data.success && data.transcript) {
-        setCurrentTranscript(data.transcript)
-        setTranscriptError(null)
-      } else {
-        setTranscriptError(data.error_help || data.error_message || 'Failed to load transcript')
-      }
-    } catch (error) {
-      setTranscriptError('Failed to fetch transcript')
-    }
-  }
+  }, [chatId, fetchTranscript])
 
   // Close video panel
   const handleCloseVideo = () => {
@@ -160,208 +152,229 @@ export default function ChatDetail() {
     setCurrentPlaybackTime(0)
   }
 
-  const handleSendMessage = async () => {
-    if (message.trim() && !isLoading) {
-      const userMessage: ChatMessage = {
-        id: `msg-${Date.now()}`,
-        type: 'user',
-        content: message.trim(),
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      }
+  // Send message function that accepts an optional message parameter
+  const sendMessage = useCallback(async (messageToSend: string) => {
+    if (!messageToSend.trim() || isLoading) return
 
-      setMessages(prev => [...prev, userMessage])
-      setMessage("")
-      setIsLoading(true)
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      type: 'user',
+      content: messageToSend.trim(),
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    }
 
-      // Create a new chat if we don't have one
-      if (!conversationIdRef.current) {
-        try {
-          const newChat = await chatService.createChat({
-            title: message.trim().substring(0, 50)
-          })
-          conversationIdRef.current = newChat.id
-          setCurrentChat(newChat)
-          setTitle(newChat.title)
-        } catch (error) {
-          console.error('Failed to create chat:', error)
-        }
-      }
+    setMessages(prev => [...prev, userMessage])
+    setMessage("")
+    setIsLoading(true)
 
-      setLoadingMessage("Connecting to AI model...")
-      setErrorRetryCount(0)
-      requestAnimationFrame(scrollToBottom)
-
-      // Create assistant message placeholder
-      const assistantMessageId = `msg-${Date.now() + 1}`
-      const assistantMessage: ChatMessage = {
-        id: assistantMessageId,
-        type: 'assistant',
-        content: '',
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-
+    // Create a new chat if we don't have one
+    if (!conversationIdRef.current) {
       try {
-        const MAX_RETRIES = 3
-        let retryCount = 0
-        let lastError = null
+        const newChat = await chatService.createChat({
+          title: messageToSend.trim().substring(0, 50)
+        })
+        conversationIdRef.current = newChat.id
+        setCurrentChat(newChat)
+        setTitle(newChat.title)
+      } catch (error) {
+        console.error('Failed to create chat:', error)
+      }
+    }
 
-        while (retryCount < MAX_RETRIES) {
-          try {
-            if (retryCount > 0) {
-              setLoadingMessage(`Retrying connection (${retryCount}/${MAX_RETRIES})...`)
-              await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
-            }
+    setLoadingMessage("Connecting to AI model...")
+    setErrorRetryCount(0)
+    requestAnimationFrame(scrollToBottom)
 
-            const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: userMessage.content,
-                conversation_id: conversationIdRef.current,
-                temperature: 0.7,
-                include_transcript: true,
-              }),
-            })
+    // Create assistant message placeholder
+    const assistantMessageId = `msg-${Date.now() + 1}`
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      type: 'assistant',
+      content: '',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    }
 
-            if (!response.ok) {
-              throw new Error(`Server responded with ${response.status}`)
-            }
+    setMessages(prev => [...prev, assistantMessage])
 
-            setLoadingMessage("Processing your request...")
+    try {
+      const MAX_RETRIES = 3
+      let retryCount = 0
+      let lastError = null
 
-            const reader = response.body?.getReader()
-            const decoder = new TextDecoder()
-            let fullResponse = ''
-            let hasStartedStreaming = false
+      while (retryCount < MAX_RETRIES) {
+        try {
+          if (retryCount > 0) {
+            setLoadingMessage(`Retrying connection (${retryCount}/${MAX_RETRIES})...`)
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+          }
 
-            if (reader) {
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+          const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: userMessage.content,
+              conversation_id: conversationIdRef.current,
+              temperature: 0.7,
+              include_transcript: true,
+            }),
+          })
 
-                const chunk = decoder.decode(value)
-                const lines = chunk.split('\n')
+          if (!response.ok) {
+            throw new Error(`Server responded with ${response.status}`)
+          }
 
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6))
+          setLoadingMessage("Processing your request...")
 
-                      if (data.type === 'content') {
-                        if (!hasStartedStreaming) {
-                          hasStartedStreaming = true
-                          setLoadingMessage("")
-                        }
-                        fullResponse += data.content
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+          let fullResponse = ''
+          let hasStartedStreaming = false
+
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              const chunk = decoder.decode(value)
+              const lines = chunk.split('\n')
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6))
+
+                    if (data.type === 'content') {
+                      if (!hasStartedStreaming) {
+                        hasStartedStreaming = true
+                        setLoadingMessage("")
+                      }
+                      fullResponse += data.content
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, content: fullResponse }
+                          : msg
+                      ))
+                      requestAnimationFrame(scrollToBottom)
+                    } else if (data.type === 'youtube_detected') {
+                      setCurrentVideoId(data.video_id)
+                      setLoadingMessage("Fetching video transcript...")
+                      // Update user message with artifact data
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === userMessage.id
+                          ? {
+                              ...msg,
+                              artifactType: 'youtube',
+                              artifactData: {
+                                video_id: data.video_id,
+                                url: data.url,
+                              }
+                            }
+                          : msg
+                      ))
+                    } else if (data.type === 'transcript_status') {
+                      if (data.success) {
+                        // Fetch transcript immediately when it's ready
+                        fetchTranscript(data.video_id)
                         setMessages(prev => prev.map(msg =>
-                          msg.id === assistantMessageId
-                            ? { ...msg, content: fullResponse }
-                            : msg
-                        ))
-                        requestAnimationFrame(scrollToBottom)
-                      } else if (data.type === 'youtube_detected') {
-                        setCurrentVideoId(data.video_id)
-                        setLoadingMessage("Fetching video transcript...")
-                        // Update user message with artifact data
-                        setMessages(prev => prev.map(msg =>
-                          msg.id === userMessage.id
+                          msg.id === userMessage.id && msg.artifactData
                             ? {
                                 ...msg,
-                                artifactType: 'youtube',
                                 artifactData: {
-                                  video_id: data.video_id,
-                                  url: data.url,
+                                  ...msg.artifactData,
+                                  transcript_available: true,
                                 }
                               }
                             : msg
                         ))
-                      } else if (data.type === 'transcript_status') {
-                        if (data.success) {
-                          fetchTranscript(data.video_id)
-                          setMessages(prev => prev.map(msg =>
-                            msg.id === userMessage.id && msg.artifactData
-                              ? {
-                                  ...msg,
-                                  artifactData: {
-                                    ...msg.artifactData,
-                                    transcript_available: true,
-                                  }
-                                }
-                              : msg
-                          ))
-                        } else {
-                          setTranscriptError(data.error_message || 'Failed to load transcript')
-                        }
-                        setLoadingMessage("")
-                      } else if (data.type === 'done') {
-                        // Update conversation ID if new
-                        if (data.conversation_id) {
-                          conversationIdRef.current = data.conversation_id
-                        }
-                      } else if (data.type === 'error') {
-                        if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {
-                          throw new Error('ollama_connection_failed')
-                        }
-                        throw new Error(data.error)
+                      } else {
+                        setTranscriptError(data.error_message || 'Failed to load transcript')
                       }
-                    } catch (e) {
-                      if (e instanceof Error && e.message === 'ollama_connection_failed') {
-                        throw e
+                      // Don't clear loading message here - wait for LLM response
+                    } else if (data.type === 'transcript_loading') {
+                      setLoadingMessage("Extracting transcript from YouTube...")
+                    } else if (data.type === 'llm_starting') {
+                      setLoadingMessage("Generating response...")
+                    } else if (data.type === 'done') {
+                      // Update conversation ID if new
+                      if (data.conversation_id) {
+                        conversationIdRef.current = data.conversation_id
                       }
-                      // Ignore parsing errors for incomplete chunks
+                    } else if (data.type === 'error') {
+                      if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {
+                        throw new Error('ollama_connection_failed')
+                      }
+                      throw new Error(data.error)
                     }
+                  } catch (e) {
+                    if (e instanceof Error && e.message === 'ollama_connection_failed') {
+                      throw e
+                    }
+                    // Ignore parsing errors for incomplete chunks
                   }
                 }
               }
             }
+          }
 
-            // Success - break out of retry loop
-            setLoadingMessage("")
-            requestAnimationFrame(() => {
-              requestAnimationFrame(scrollToBottom)
-            })
+          // Success - break out of retry loop
+          setLoadingMessage("")
+          requestAnimationFrame(() => {
+            requestAnimationFrame(scrollToBottom)
+          })
+          break
+
+        } catch (error) {
+          lastError = error
+          retryCount++
+
+          if (retryCount >= MAX_RETRIES) {
             break
-
-          } catch (error) {
-            lastError = error
-            retryCount++
-
-            if (retryCount >= MAX_RETRIES) {
-              break
-            }
           }
         }
-
-        // If we exhausted all retries, show error
-        if (retryCount >= MAX_RETRIES && lastError) {
-          const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error'
-          let userFriendlyMessage = ''
-
-          if (errorMessage.includes('ollama_connection_failed')) {
-            userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
-          } else if (errorMessage.includes('fetch')) {
-            userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python -m backend.main`
-          } else {
-            userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• LLM service is active\n• Network connectivity`
-          }
-
-          setMessages(prev => prev.map(msg =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: userFriendlyMessage }
-              : msg
-          ))
-          setErrorRetryCount(prev => prev + 1)
-        }
-      } finally {
-        setIsLoading(false)
-        setLoadingMessage("")
       }
+
+      // If we exhausted all retries, show error
+      if (retryCount >= MAX_RETRIES && lastError) {
+        const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error'
+        let userFriendlyMessage = ''
+
+        if (errorMessage.includes('ollama_connection_failed')) {
+          userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
+        } else if (errorMessage.includes('fetch')) {
+          userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python -m backend.main`
+        } else {
+          userFriendlyMessage = `Connection failed: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• LLM service is active\n• Network connectivity`
+        }
+
+        setMessages(prev => prev.map(msg =>
+          msg.id === assistantMessageId
+            ? { ...msg, content: userFriendlyMessage }
+            : msg
+        ))
+        setErrorRetryCount(prev => prev + 1)
+      }
+    } finally {
+      setIsLoading(false)
+      setLoadingMessage("")
     }
-  }
+  }, [isLoading, fetchTranscript, setTitle])
+
+  // Wrapper for button click
+  const handleSendMessage = useCallback(() => {
+    sendMessage(message)
+  }, [message, sendMessage])
+
+  // Handle initial message from navigation state
+  useEffect(() => {
+    const initialMessage = location.state?.initialMessage
+    if (initialMessage && chatId && !hasProcessedInitialMessage.current) {
+      hasProcessedInitialMessage.current = true
+      // Directly send the message without setting state first
+      sendMessage(initialMessage)
+    }
+  }, [location.state, chatId, sendMessage])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -430,9 +443,8 @@ export default function ChatDetail() {
                                     onClick={() => {
                                       const lastUserMsg = messages.filter(m => m.type === 'user').pop()
                                       if (lastUserMsg) {
-                                        setMessage(lastUserMsg.content)
                                         setMessages(prev => prev.slice(0, -2))
-                                        setTimeout(() => handleSendMessage(), 100)
+                                        sendMessage(lastUserMsg.content)
                                       }
                                     }}
                                   >
@@ -455,9 +467,7 @@ export default function ChatDetail() {
                               className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
                               onClick={() => {
                                 setCurrentVideoId(msg.artifactData!.video_id!)
-                                if (msg.artifactData!.transcript_available) {
-                                  fetchTranscript(msg.artifactData!.video_id!)
-                                }
+                                fetchTranscript(msg.artifactData!.video_id!)
                               }}
                             >
                               <div className="flex items-center gap-3">
@@ -465,7 +475,7 @@ export default function ChatDetail() {
                                 <div>
                                   <span className="text-sm font-medium">YouTube Video</span>
                                   <div className="text-xs text-muted-foreground">
-                                    {msg.artifactData.transcript_available ? 'Transcript available' : 'No transcript'}
+                                    {msg.artifactData.transcript_available ? 'Transcript available' : 'Click to load'}
                                   </div>
                                 </div>
                               </div>
@@ -555,7 +565,12 @@ export default function ChatDetail() {
                     </TabsList>
 
                     <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
-                      {currentTranscript ? (
+                      {isTranscriptLoading ? (
+                        <div className="flex items-center justify-center h-full gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Loading transcript...</span>
+                        </div>
+                      ) : currentTranscript ? (
                         <TranscriptViewer
                           segments={currentTranscript.segments}
                           currentTime={currentPlaybackTime}

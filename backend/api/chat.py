@@ -62,8 +62,17 @@ async def stream_chat_response(
                 }),
             }
 
-            # Try to fetch transcript
+            # Notify frontend that we're loading transcript
             if include_transcript:
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "type": "transcript_loading",
+                        "video_id": video_id,
+                    }),
+                }
+
+                # Fetch transcript - this must complete before LLM starts
                 result = youtube_service.get_transcript(video_id)
                 if result.success:
                     transcript = result.transcript
@@ -127,21 +136,22 @@ async def stream_chat_response(
 
 When the user shares a YouTube video:
 - If a transcript is available, you can summarize it, answer questions about it, or discuss specific parts
-- Reference timestamps when discussing specific parts of the video
-- Be helpful and informative about the video content"""
+- Reference timestamps when discussing specific parts of the video (format: [MM:SS] or [HH:MM:SS])
+- Be helpful and informative about the video content
+- Provide a comprehensive summary when first presented with a video"""
 
         if transcript:
-            # Include transcript in context
+            # Include transcript in context - the transcript is now available
             transcript_text = transcript.full_text
-            if len(transcript_text) > 6000:
-                transcript_text = transcript_text[:6000] + "... [transcript truncated]"
+            if len(transcript_text) > 8000:
+                transcript_text = transcript_text[:8000] + "... [transcript truncated]"
             system_content += f"\n\nThe user is viewing a YouTube video (ID: {video_id}). Here is the transcript:\n\n{transcript_text}"
         elif youtube_urls and not transcript:
-            system_content += f"\n\nThe user shared a YouTube video but the transcript could not be extracted. You can still discuss the video but won't have access to its content."
+            system_content += f"\n\nThe user shared a YouTube video (ID: {video_id}) but the transcript could not be extracted. You can still discuss the video but won't have access to its content."
 
         context_messages.append(ChatMessage(role="system", content=system_content))
 
-        # Add recent conversation history
+        # Add recent conversation history (only from current chat, not other chats)
         recent_messages = message_repo.get_recent_by_chat_id(conversation_id, limit=10)
         for msg in recent_messages:
             if msg.id != user_message.id:  # Don't duplicate the current message
@@ -149,6 +159,14 @@ When the user shares a YouTube video:
 
         # Add current message
         context_messages.append(ChatMessage(role="user", content=message))
+
+        # Notify frontend that LLM is starting
+        yield {
+            "event": "message",
+            "data": json.dumps({
+                "type": "llm_starting",
+            }),
+        }
 
         # Stream LLM response
         full_response = ""

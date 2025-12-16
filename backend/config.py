@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         description="LLM provider to use",
     )
     llm_base_url: str = Field(
-        default="http://192.168.1.173:11434/v1",
+        default="http://localhost:8080/v1",
         description="Base URL for OpenAI-compatible API",
     )
     llm_api_key: str = Field(

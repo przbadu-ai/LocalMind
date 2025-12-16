@@ -19,7 +19,7 @@
         "resizable": true,
         "fullscreen": false,
         "maximized": false,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
         "center": true,
         "acceptFirstMouse": true

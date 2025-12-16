@@ -15,6 +15,12 @@ from utils.youtube_utils import extract_video_id
 router = APIRouter()
 
 
+# Segment grouping configuration
+MIN_SEGMENT_DURATION = 10  # Minimum 10 seconds per grouped segment
+MAX_SEGMENT_DURATION = 60  # Maximum 60 seconds per grouped segment
+TARGET_SEGMENT_DURATION = 30  # Target around 30 seconds
+
+
 class TranscriptRequest(BaseModel):
     """Request body for extracting a transcript."""
 
@@ -42,8 +48,116 @@ class TranscriptResponse(BaseModel):
     error_help: Optional[str] = None
 
 
+def group_transcript_segments(segments: list, min_duration: float = MIN_SEGMENT_DURATION, max_duration: float = MAX_SEGMENT_DURATION) -> list:
+    """
+    Group short transcript segments into longer, more readable chunks.
+
+    Args:
+        segments: List of transcript segments with text, start, and duration
+        min_duration: Minimum duration for a grouped segment (default 10s)
+        max_duration: Maximum duration for a grouped segment (default 60s)
+
+    Returns:
+        List of grouped segments
+    """
+    if not segments:
+        return []
+
+    grouped = []
+    current_group = {
+        "text": "",
+        "start": 0,
+        "duration": 0,
+    }
+
+    for i, seg in enumerate(segments):
+        seg_text = seg.get("text", "") if isinstance(seg, dict) else seg.text
+        seg_start = seg.get("start", 0) if isinstance(seg, dict) else seg.start
+        seg_duration = seg.get("duration", 0) if isinstance(seg, dict) else seg.duration
+
+        # If this is the first segment in a group
+        if not current_group["text"]:
+            current_group = {
+                "text": seg_text,
+                "start": seg_start,
+                "duration": seg_duration,
+            }
+        else:
+            # Calculate the total duration if we add this segment
+            potential_end = seg_start + seg_duration
+            potential_duration = potential_end - current_group["start"]
+
+            # Check if adding this segment would exceed max duration
+            if potential_duration > max_duration:
+                # Save current group and start a new one
+                grouped.append(current_group)
+                current_group = {
+                    "text": seg_text,
+                    "start": seg_start,
+                    "duration": seg_duration,
+                }
+            else:
+                # Add to current group
+                current_group["text"] = current_group["text"] + " " + seg_text
+                current_group["duration"] = potential_duration
+
+    # Don't forget the last group
+    if current_group["text"]:
+        grouped.append(current_group)
+
+    # Post-process: merge any very short trailing segments
+    final_grouped = []
+    for group in grouped:
+        if final_grouped and group["duration"] < min_duration / 2:
+            # Merge with previous if this one is very short
+            prev = final_grouped[-1]
+            prev["text"] = prev["text"] + " " + group["text"]
+            prev["duration"] = (group["start"] + group["duration"]) - prev["start"]
+        else:
+            final_grouped.append(group)
+
+    return final_grouped
+
+
+def build_transcript_response(result, group_segments: bool = True) -> dict:
+    """Build the transcript response dict from a TranscriptResult."""
+    if not result.transcript:
+        return None
+
+    raw_segments = [
+        {
+            "text": seg.text,
+            "start": seg.start,
+            "duration": seg.duration,
+        }
+        for seg in result.transcript.segments
+    ]
+
+    # Group segments for better readability in the UI
+    if group_segments:
+        segments = group_transcript_segments(raw_segments)
+    else:
+        segments = raw_segments
+
+    return {
+        "id": result.transcript.id,
+        "video_id": result.transcript.video_id,
+        "video_url": result.transcript.video_url,
+        "video_title": result.transcript.video_title,
+        "language_code": result.transcript.language_code,
+        "is_generated": result.transcript.is_generated,
+        "segments": segments,
+        "full_text": result.transcript.full_text,
+        "raw_segment_count": len(raw_segments),
+        "grouped_segment_count": len(segments),
+    }
+
+
 @router.post("/youtube/transcript")
-async def extract_transcript(request: TranscriptRequest) -> TranscriptResponse:
+async def extract_transcript(
+    request: TranscriptRequest,
+    group: bool = Query(default=True, description="Group segments into longer chunks"),
+) -> TranscriptResponse:
     """Extract transcript from a YouTube video."""
     languages = request.languages or ["en", "hi", "es", "fr", "de", "pt", "ja", "ko", "zh"]
 
@@ -57,23 +171,7 @@ async def extract_transcript(request: TranscriptRequest) -> TranscriptResponse:
         return TranscriptResponse(
             success=True,
             video_id=result.video_id,
-            transcript={
-                "id": result.transcript.id,
-                "video_id": result.transcript.video_id,
-                "video_url": result.transcript.video_url,
-                "video_title": result.transcript.video_title,
-                "language_code": result.transcript.language_code,
-                "is_generated": result.transcript.is_generated,
-                "segments": [
-                    {
-                        "text": seg.text,
-                        "start": seg.start,
-                        "duration": seg.duration,
-                    }
-                    for seg in result.transcript.segments
-                ],
-                "full_text": result.transcript.full_text,
-            },
+            transcript=build_transcript_response(result, group_segments=group),
         )
     else:
         return TranscriptResponse(
@@ -89,6 +187,7 @@ async def extract_transcript(request: TranscriptRequest) -> TranscriptResponse:
 async def get_transcript(
     video_id: str,
     use_cache: bool = Query(default=True),
+    group: bool = Query(default=True, description="Group segments into longer chunks"),
 ) -> TranscriptResponse:
     """Get transcript for a video by ID."""
     result = youtube_service.get_transcript(
@@ -100,23 +199,7 @@ async def get_transcript(
         return TranscriptResponse(
             success=True,
             video_id=result.video_id,
-            transcript={
-                "id": result.transcript.id,
-                "video_id": result.transcript.video_id,
-                "video_url": result.transcript.video_url,
-                "video_title": result.transcript.video_title,
-                "language_code": result.transcript.language_code,
-                "is_generated": result.transcript.is_generated,
-                "segments": [
-                    {
-                        "text": seg.text,
-                        "start": seg.start,
-                        "duration": seg.duration,
-                    }
-                    for seg in result.transcript.segments
-                ],
-                "full_text": result.transcript.full_text,
-            },
+            transcript=build_transcript_response(result, group_segments=group),
         )
     else:
         return TranscriptResponse(
