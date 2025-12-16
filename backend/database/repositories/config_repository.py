@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
-from backend.database.connection import get_db
-from backend.database.models import Configuration, MCPServer
+from database.connection import get_db
+from database.models import Configuration, MCPServer
 
 
 class ConfigRepository:

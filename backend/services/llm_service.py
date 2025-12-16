@@ -5,7 +5,7 @@ from typing import Generator, Optional
 from openai import OpenAI
 from pydantic import BaseModel
 
-from backend.config import settings
+from config import settings
 
 
 class ChatMessage(BaseModel):

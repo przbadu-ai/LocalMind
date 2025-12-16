@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 
-from backend.config import settings
-from backend.database.models import Transcript
-from backend.utils.youtube_utils import find_youtube_urls
+from config import settings
+from database.models import Transcript
+from utils.youtube_utils import find_youtube_urls
 
 
 @dataclass
@@ -132,7 +132,7 @@ Always be conversational, precise, and helpful.""",
         if not ctx.deps.current_transcript:
             return []
 
-        from backend.utils.timestamp_utils import format_timestamp
+        from utils.timestamp_utils import format_timestamp
 
         results = []
         query_lower = query.lower()

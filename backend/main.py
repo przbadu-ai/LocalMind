@@ -7,8 +7,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.config import settings
-from backend.database.connection import init_db
+from config import settings
+from database.connection import init_db
 
 # Configure logging
 logging.basicConfig(
@@ -63,7 +63,7 @@ async def health_check():
 
 
 # Import and include routers
-from backend.api import chat, chats, mcp, settings as settings_router, youtube
+from api import chat, chats, mcp, settings as settings_router, youtube
 
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(chats.router, prefix="/api/v1", tags=["Chats"])
@@ -75,7 +75,7 @@ app.include_router(settings_router.router, prefix="/api/v1", tags=["Settings"])
 def main():
     """Run the server."""
     uvicorn.run(
-        "backend.main:app",
+        "main:app",
         host=settings.backend_host,
         port=settings.backend_port,
         reload=True,

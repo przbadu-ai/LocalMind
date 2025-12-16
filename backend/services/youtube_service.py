@@ -10,9 +10,9 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
 )
 
-from backend.database.models import Transcript, TranscriptSegment
-from backend.database.repositories.transcript_repository import TranscriptRepository
-from backend.utils.youtube_utils import build_youtube_url, extract_video_id
+from database.models import Transcript, TranscriptSegment
+from database.repositories.transcript_repository import TranscriptRepository
+from utils.youtube_utils import build_youtube_url, extract_video_id
 
 
 class TranscriptResult(BaseModel):

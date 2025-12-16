@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from backend.database.connection import get_db
-from backend.database.models import Transcript, TranscriptSegment
+from database.connection import get_db
+from database.models import Transcript, TranscriptSegment
 
 
 class TranscriptRepository:

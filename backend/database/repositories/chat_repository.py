@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from backend.database.connection import get_db
-from backend.database.models import Chat, ChatTag
+from database.connection import get_db
+from database.models import Chat, ChatTag
 
 
 class ChatRepository:

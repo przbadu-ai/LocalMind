@@ -1,12 +1,12 @@
 """Pydantic AI agents for LocalMind."""
 
-from backend.agents.chat_agent import (
+from agents.chat_agent import (
     ChatDeps,
     ChatResponse,
     chat_with_agent,
     create_chat_agent,
 )
-from backend.agents.youtube_agent import (
+from agents.youtube_agent import (
     VideoQAResponse,
     VideoSummary,
     create_qa_agent,

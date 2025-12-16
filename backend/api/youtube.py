@@ -5,12 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.services.youtube_service import (
+from services.youtube_service import (
     TranscriptResult,
     get_transcript_error_help,
     youtube_service,
 )
-from backend.utils.youtube_utils import extract_video_id
+from utils.youtube_utils import extract_video_id
 
 router = APIRouter()
 

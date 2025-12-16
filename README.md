@@ -95,7 +95,7 @@ ollama pull llama3:instruct
 # Terminal 1: Start the Python backend
 cd backend
 source .venv/bin/activate
-uv run uvicorn main:app --host 127.0.0.1 --port 52817 --reload
+uvicorn main:app --host 127.0.0.1 --port 52817 --reload
 
 # Terminal 2: Start the frontend (development)
 bun dev
@@ -111,7 +111,7 @@ bun tauri dev
 ```bash
 cd backend
 source .venv/bin/activate
-uv run uvicorn main:app --host 127.0.0.1 --port 52817 --reload
+uvicorn main:app --host 127.0.0.1 --port 52817 --reload
 ```
 
 The API will be available at:

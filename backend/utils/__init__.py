@@ -1,7 +1,7 @@
 """Utility functions for LocalMind backend."""
 
-from backend.utils.timestamp_utils import format_timestamp, parse_timestamp
-from backend.utils.youtube_utils import (
+from utils.timestamp_utils import format_timestamp, parse_timestamp
+from utils.youtube_utils import (
     build_embed_url,
     build_youtube_url,
     extract_video_id,

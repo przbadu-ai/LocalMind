@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 
-from backend.config import settings
-from backend.database.models import Transcript
-from backend.utils.timestamp_utils import format_timestamp
+from config import settings
+from database.models import Transcript
+from utils.timestamp_utils import format_timestamp
 
 
 @dataclass

@@ -5,9 +5,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.config import settings
-from backend.database.repositories.config_repository import ConfigRepository
-from backend.services.llm_service import llm_service
+from config import settings
+from database.repositories.config_repository import ConfigRepository
+from services.llm_service import llm_service
 
 router = APIRouter()
 
@@ -153,7 +153,7 @@ async def check_llm_health() -> dict:
 @router.post("/settings/llm/test")
 async def test_llm_connection(request: LLMSettingsRequest) -> dict:
     """Test LLM connection with provided settings."""
-    from backend.services.llm_service import LLMService, ChatMessage
+    from services.llm_service import LLMService, ChatMessage
 
     # Use provided settings or current ones
     llm_config = config_repo.get_config_value("llm", {})

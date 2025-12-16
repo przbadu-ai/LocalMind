@@ -5,9 +5,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.database.models import Chat, Message
-from backend.database.repositories.chat_repository import ChatRepository
-from backend.database.repositories.message_repository import MessageRepository
+from database.models import Chat, Message
+from database.repositories.chat_repository import ChatRepository
+from database.repositories.message_repository import MessageRepository
 
 router = APIRouter()
 

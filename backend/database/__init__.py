@@ -1,7 +1,7 @@
 """Database module for LocalMind."""
 
-from backend.database.connection import get_db, init_db
-from backend.database.models import (
+from database.connection import get_db, init_db
+from database.models import (
     Chat,
     ChatTag,
     Configuration,

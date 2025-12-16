@@ -6,8 +6,8 @@ import logging
 import subprocess
 from typing import Any, Optional
 
-from backend.database.models import MCPServer
-from backend.database.repositories.config_repository import ConfigRepository
+from database.models import MCPServer
+from database.repositories.config_repository import ConfigRepository
 
 logger = logging.getLogger(__name__)
 

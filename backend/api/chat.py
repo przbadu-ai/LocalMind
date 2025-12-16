@@ -8,12 +8,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from backend.database.models import Chat, Message
-from backend.database.repositories.chat_repository import ChatRepository
-from backend.database.repositories.message_repository import MessageRepository
-from backend.services.llm_service import ChatMessage, llm_service
-from backend.services.youtube_service import youtube_service
-from backend.utils.youtube_utils import find_youtube_urls
+from database.models import Chat, Message
+from database.repositories.chat_repository import ChatRepository
+from database.repositories.message_repository import MessageRepository
+from services.llm_service import ChatMessage, llm_service
+from services.youtube_service import youtube_service
+from utils.youtube_utils import find_youtube_urls
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

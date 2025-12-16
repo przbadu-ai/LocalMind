@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from backend.config import settings
+from config import settings
 
 # SQL schema for all tables
 SCHEMA = """
