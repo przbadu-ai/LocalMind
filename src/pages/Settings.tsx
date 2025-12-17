@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import {
   AlertCircle,
   CheckCircle2,
@@ -31,6 +32,10 @@ import {
   Cpu,
   Eye,
   EyeOff,
+  Pencil,
+  FileJson,
+  Download,
+  Upload,
 } from "lucide-react"
 import { API_BASE_URL } from "@/config/app-config"
 import { useHeaderStore } from "@/stores/useHeaderStore"
@@ -112,6 +117,12 @@ export default function Settings() {
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([])
   const [mcpLoading, setMcpLoading] = useState(true)
   const [showAddServer, setShowAddServer] = useState(false)
+  const [showEditServer, setShowEditServer] = useState(false)
+  const [editingServer, setEditingServer] = useState<MCPServer | null>(null)
+  const [showJsonImport, setShowJsonImport] = useState(false)
+  const [jsonImportValue, setJsonImportValue] = useState("")
+  const [jsonImportError, setJsonImportError] = useState<string | null>(null)
+  const [jsonImporting, setJsonImporting] = useState(false)
   const [newServer, setNewServer] = useState({
     name: "",
     transport_type: "stdio" as "stdio" | "sse",
@@ -311,6 +322,131 @@ export default function Settings() {
     } catch (error) {
       console.error(`Failed to ${action} MCP server:`, error)
     }
+  }
+
+  // Update MCP server
+  const updateMCPServer = async () => {
+    if (!editingServer) return
+
+    try {
+      const payload: Record<string, unknown> = {
+        name: editingServer.name,
+        transport_type: editingServer.transport_type,
+        enabled: editingServer.enabled,
+      }
+
+      if (editingServer.transport_type === "stdio") {
+        payload.command = editingServer.command
+        payload.args = editingServer.args
+      } else {
+        payload.url = editingServer.url
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/mcp/servers/${editingServer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (response.ok) {
+        setShowEditServer(false)
+        setEditingServer(null)
+        await loadMCPServers()
+      }
+    } catch (error) {
+      console.error("Failed to update MCP server:", error)
+    }
+  }
+
+  // Open edit dialog
+  const openEditServer = (server: MCPServer) => {
+    setEditingServer({ ...server })
+    setShowEditServer(true)
+  }
+
+  // Export MCP servers to JSON
+  const exportMCPServers = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/mcp/export`)
+      if (response.ok) {
+        const data = await response.json()
+        const jsonStr = JSON.stringify(data, null, 2)
+
+        // Create and download file
+        const blob = new Blob([jsonStr], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = "mcp-servers.json"
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+    } catch (error) {
+      console.error("Failed to export MCP servers:", error)
+    }
+  }
+
+  // Import MCP servers from JSON
+  const importMCPServers = async () => {
+    setJsonImportError(null)
+
+    try {
+      // Parse and validate JSON
+      const parsed = JSON.parse(jsonImportValue)
+
+      if (!parsed.mcpServers || typeof parsed.mcpServers !== "object") {
+        setJsonImportError("Invalid format. Expected { \"mcpServers\": { ... } }")
+        return
+      }
+
+      setJsonImporting(true)
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/mcp/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setShowJsonImport(false)
+        setJsonImportValue("")
+        await loadMCPServers()
+      } else {
+        setJsonImportError(result.message || "Import failed")
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        setJsonImportError("Invalid JSON syntax")
+      } else {
+        setJsonImportError(`Import failed: ${error}`)
+      }
+    } finally {
+      setJsonImporting(false)
+    }
+  }
+
+  // Load example JSON for import
+  const loadExampleJson = () => {
+    const example = {
+      mcpServers: {
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/files"]
+        },
+        "github": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "env": {
+            "GITHUB_PERSONAL_ACCESS_TOKEN": "your-token-here"
+          }
+        }
+      }
+    }
+    setJsonImportValue(JSON.stringify(example, null, 2))
   }
 
   return (
@@ -514,13 +650,71 @@ export default function Settings() {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>MCP Servers</span>
-                    <Dialog open={showAddServer} onOpenChange={setShowAddServer}>
-                      <DialogTrigger asChild>
-                        <Button size="sm">
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Server
-                        </Button>
-                      </DialogTrigger>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={exportMCPServers}
+                        disabled={mcpServers.length === 0}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Export
+                      </Button>
+                      <Dialog open={showJsonImport} onOpenChange={setShowJsonImport}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <FileJson className="h-4 w-4 mr-2" />
+                            Import JSON
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Import MCP Servers from JSON</DialogTitle>
+                            <DialogDescription>
+                              Paste your MCP configuration JSON. Existing servers with matching names will be updated.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            <div className="flex justify-end">
+                              <Button variant="link" size="sm" onClick={loadExampleJson}>
+                                Load example
+                              </Button>
+                            </div>
+                            <Textarea
+                              value={jsonImportValue}
+                              onChange={(e) => setJsonImportValue(e.target.value)}
+                              placeholder='{"mcpServers": {"server-name": {"command": "npx", "args": [...]}}}'
+                              className="font-mono text-sm h-64"
+                            />
+                            {jsonImportError && (
+                              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-600">
+                                <AlertCircle className="h-4 w-4" />
+                                <span className="text-sm">{jsonImportError}</span>
+                              </div>
+                            )}
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowJsonImport(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={importMCPServers} disabled={jsonImporting || !jsonImportValue.trim()}>
+                              {jsonImporting ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Upload className="h-4 w-4 mr-2" />
+                              )}
+                              Import
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                      <Dialog open={showAddServer} onOpenChange={setShowAddServer}>
+                        <DialogTrigger asChild>
+                          <Button size="sm">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Server
+                          </Button>
+                        </DialogTrigger>
                       <DialogContent>
                         <DialogHeader>
                           <DialogTitle>Add MCP Server</DialogTitle>
@@ -607,11 +801,103 @@ export default function Settings() {
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    </div>
                   </CardTitle>
                   <CardDescription>
                     Manage Model Context Protocol servers for extended capabilities
                   </CardDescription>
                 </CardHeader>
+
+                {/* Edit Server Dialog */}
+                <Dialog open={showEditServer} onOpenChange={setShowEditServer}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Edit MCP Server</DialogTitle>
+                      <DialogDescription>
+                        Modify the MCP server configuration
+                      </DialogDescription>
+                    </DialogHeader>
+                    {editingServer && (
+                      <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="edit-server-name">Name</Label>
+                          <Input
+                            id="edit-server-name"
+                            value={editingServer.name}
+                            onChange={(e) => setEditingServer(prev => prev ? { ...prev, name: e.target.value } : null)}
+                            placeholder="My MCP Server"
+                          />
+                        </div>
+
+                        <div className="grid gap-2">
+                          <Label htmlFor="edit-transport-type">Transport Type</Label>
+                          <Select
+                            value={editingServer.transport_type}
+                            onValueChange={(value: "stdio" | "sse") => setEditingServer(prev => prev ? { ...prev, transport_type: value } : null)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="stdio">stdio (Local process)</SelectItem>
+                              <SelectItem value="sse">SSE (Remote server)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {editingServer.transport_type === "stdio" ? (
+                          <>
+                            <div className="grid gap-2">
+                              <Label htmlFor="edit-command">Command</Label>
+                              <Input
+                                id="edit-command"
+                                value={editingServer.command || ""}
+                                onChange={(e) => setEditingServer(prev => prev ? { ...prev, command: e.target.value } : null)}
+                                placeholder="npx"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="edit-args">Arguments (space-separated)</Label>
+                              <Input
+                                id="edit-args"
+                                value={editingServer.args?.join(" ") || ""}
+                                onChange={(e) => setEditingServer(prev => prev ? { ...prev, args: e.target.value.split(" ").filter(Boolean) } : null)}
+                                placeholder="@modelcontextprotocol/server-filesystem"
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="grid gap-2">
+                            <Label htmlFor="edit-url">Server URL</Label>
+                            <Input
+                              id="edit-url"
+                              value={editingServer.url || ""}
+                              onChange={(e) => setEditingServer(prev => prev ? { ...prev, url: e.target.value } : null)}
+                              placeholder="http://localhost:3000/sse"
+                            />
+                          </div>
+                        )}
+
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="edit-enabled"
+                            checked={editingServer.enabled}
+                            onCheckedChange={(checked) => setEditingServer(prev => prev ? { ...prev, enabled: checked } : null)}
+                          />
+                          <Label htmlFor="edit-enabled">Enable on startup</Label>
+                        </div>
+                      </div>
+                    )}
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setShowEditServer(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={updateMCPServer} disabled={!editingServer?.name}>
+                        Save Changes
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
                 <CardContent>
                   {mcpLoading ? (
                     <div className="flex items-center justify-center py-8">
@@ -664,6 +950,14 @@ export default function Settings() {
                                 <Play className="h-4 w-4" />
                               </Button>
                             )}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => openEditServer(server)}
+                              title="Edit server"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="icon"
