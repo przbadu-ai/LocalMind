@@ -1,5 +1,6 @@
 # Backend Dockerfile for Local Mind
 # Python FastAPI backend with LLM chat and YouTube transcription
+# Supports both Docker Compose and Kamal deployments
 
 FROM python:3.11-slim
 
@@ -35,5 +36,6 @@ EXPOSE 52817
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:52817/health || exit 1
 
-# Run the application
+# Run the application (production mode - no reload)
+# Can be overridden by Kamal's cmd configuration
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "52817"]

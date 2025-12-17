@@ -45,3 +45,7 @@ data/
 backend/data/
 venv/
 __pypackages__/
+
+# Kamal deployment
+.kamal/secrets
+config/deploy.local.yml

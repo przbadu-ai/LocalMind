@@ -1,0 +1,89 @@
+# Kamal deployment configuration for LocalMind
+# Documentation: https://kamal-deploy.org/docs/configuration/
+#
+# Quick Start:
+#   1. Copy .env.example to .env and configure your values
+#   2. Copy .kamal/secrets.example to .kamal/secrets
+#   3. Run: kamal setup (first time) or kamal deploy (updates)
+
+service: localmind
+
+# Docker image name - pushed to registry
+# Note: registry server (ghcr.io) is added automatically from registry.server
+image: przbadu/localmind
+
+# Deployment servers
+servers:
+  web:
+    hosts:
+      - 192.168.1.173
+    options:
+      add-host: host.docker.internal:host-gateway
+
+# Kamal proxy configuration
+proxy:
+  ssl: false
+  host: 192.168.1.173
+  app_port: 80
+  healthcheck:
+    path: /
+    interval: 10
+  # To enable SSL with a domain, uncomment and configure:
+  # ssl: true
+  # host: your-domain.com
+
+# SSH configuration
+ssh:
+  user: root
+
+# Container registry
+registry:
+  server: ghcr.io
+  username: przbadu
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Environment variables for the main app (frontend)
+env:
+  clear:
+    # Backend URL for nginx proxy (Docker network name)
+    BACKEND_HOST: localmind-backend
+    BACKEND_PORT: "8001"
+
+# Persistent volumes
+volumes:
+  - /var/data/localmind:/app/data
+
+# Backend service as an accessory
+accessories:
+  backend:
+    image: ghcr.io/przbadu/localmind-backend
+    host: 192.168.1.173
+    port: 8001
+    cmd: uvicorn main:app --host 0.0.0.0 --port 8001
+    env:
+      clear:
+        PYTHONPATH: /app
+        DATABASE_PATH: /app/data/local_mind.db
+        # Ollama running on host machine
+        OLLAMA_HOST: http://host.docker.internal:11434
+      secret:
+        - LLM_API_KEY
+    volumes:
+      - /var/data/localmind:/app/data
+    options:
+      add-host: host.docker.internal:host-gateway
+
+# Build configuration
+builder:
+  arch: amd64
+  # Uncomment for multi-arch builds:
+  # multiarch: true
+
+# Logging configuration (disable log-opt for journald compatibility)
+logging:
+  driver: journald
+  options: {}
+
+# Number of old containers to keep for rollback
+retain_containers: 3
