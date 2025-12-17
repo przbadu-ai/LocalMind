@@ -215,6 +215,8 @@ LLM settings are managed via the Settings page, but you can also use environment
 
 ## Building for Production
 
+### Desktop App (Tauri)
+
 ```bash
 # Build the Tauri desktop app
 bun tauri build
@@ -224,6 +226,112 @@ Output will be in `src-tauri/target/release/`:
 - **Linux**: `.deb`, `.AppImage`
 - **macOS**: `.dmg`, `.app`
 - **Windows**: `.msi`, `.exe`
+
+### Docker Deployment
+
+Local Mind can also run as a web application using Docker, perfect for hosting on a server, LXC container, or NAS.
+
+#### Quick Start with Docker Compose
+
+```bash
+# Clone and navigate to the project
+git clone https://github.com/yourusername/LocalMind.git
+cd LocalMind
+
+# Build and start containers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+The app will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:52817
+
+#### Docker Configuration
+
+**Environment Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_PATH` | SQLite database path | `/app/data/local_mind.db` |
+
+**Volumes:**
+
+The `localmind-data` volume persists your database and settings between container restarts.
+
+**Custom Configuration:**
+
+Edit `app.config.json` before building to customize LLM settings:
+
+```json
+{
+  "models": {
+    "llm": {
+      "provider": "ollama",
+      "default_model": "llama3:instruct",
+      "ollama": {
+        "base_url": "http://your-ollama-server:11434"
+      }
+    }
+  }
+}
+```
+
+#### Building Individual Images
+
+```bash
+# Build frontend only
+docker build -t localmind-frontend .
+
+# Build backend only
+docker build -t localmind-backend ./backend
+```
+
+#### Docker Compose Commands
+
+```bash
+# Start in background
+docker-compose up -d
+
+# Stop containers
+docker-compose down
+
+# Rebuild after code changes
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+
+# Remove volumes (WARNING: deletes data)
+docker-compose down -v
+```
+
+#### Connecting to External LLM Server
+
+When running in Docker, update the LLM base URL in Settings to point to your LLM server. If running Ollama on the host machine:
+
+- **Linux**: Use `http://host.docker.internal:11434` or your host's IP address
+- **macOS/Windows**: Use `http://host.docker.internal:11434`
+
+Or run Ollama in Docker on the same network:
+
+```yaml
+# Add to docker-compose.yml
+services:
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - localmind-network
+
+volumes:
+  ollama-data:
+```
 
 ## Troubleshooting
 
@@ -248,6 +356,29 @@ lsof -ti :1420 | xargs kill -9   # Frontend
 ### YouTube Transcript Not Loading
 
 Some videos don't have transcripts available. The app will show an error message with helpful suggestions if extraction fails.
+
+### Docker Issues
+
+```bash
+# Check container status
+docker-compose ps
+
+# View container logs
+docker-compose logs frontend
+docker-compose logs backend
+
+# Rebuild containers after code changes
+docker-compose up -d --build
+
+# Reset everything (WARNING: deletes data)
+docker-compose down -v
+docker-compose up -d --build
+```
+
+**Backend can't connect to LLM server:**
+- Ensure the LLM server is accessible from inside the Docker network
+- Use host IP address instead of `localhost` (e.g., `http://192.168.1.100:11434`)
+- On Linux, you can use `http://host.docker.internal:11434` with `extra_hosts` in docker-compose
 
 ## Roadmap
 

@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+backend/
+.venv/
+venv/
+
+# Build outputs
+dist/
+build/
+src-tauri/target/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test and coverage
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Documentation (keep README for reference)
+docs/
+
+# Data (will be mounted as volume)
+data/
+*.db
+
+# Tauri specific (not needed for web deployment)
+src-tauri/
+
+# Docker files (no need to copy into container)
+docker-compose.yml
+Dockerfile
+
+# Misc
+*.bak
+*.tmp
+.cache/
+bin/
+CLAUDE.md

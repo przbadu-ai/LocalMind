@@ -10,11 +10,24 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _load_app_config() -> dict:
-    """Load app.config.json if it exists."""
+    """Load app.config.json if it exists.
+
+    Checks multiple locations for Docker and local development compatibility:
+    1. Same directory as config.py (for Docker: /app/app.config.json)
+    2. Parent directory (for local dev: project_root/app.config.json)
+    """
+    # Check in the same directory first (Docker mount location)
+    config_path = Path(__file__).parent / "app.config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            return json.load(f)
+
+    # Fall back to parent directory (local development)
     config_path = Path(__file__).parent.parent / "app.config.json"
     if config_path.exists():
         with open(config_path) as f:
             return json.load(f)
+
     return {}
 
 
