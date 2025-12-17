@@ -1,200 +1,288 @@
-"""
-Chat API endpoints for RAG-based conversations.
+"""Chat streaming API endpoint."""
 
-This module handles all chat-related operations including message processing,
-conversation management, and feedback collection.
-"""
-
-from fastapi import APIRouter, HTTPException, Query, Path
-from fastapi.responses import StreamingResponse
-from typing import Optional, Dict, Any, AsyncGenerator
-from models.schemas import ChatRequest, ChatResponse
-from services import ChatService, VectorService
-import logging
+import asyncio
 import json
+import logging
+from typing import Optional
 
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
+
+from agents.title_agent import generate_chat_title
+from database.models import Chat, Message
+from database.repositories.chat_repository import ChatRepository
+from database.repositories.message_repository import MessageRepository
+from services.llm_service import ChatMessage, llm_service
+from services.youtube_service import youtube_service
+from utils.youtube_utils import find_youtube_urls
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# Initialize services
-vector_service = VectorService()
-chat_service = ChatService(vector_service)
-
-
-@router.post("/stream")
-async def chat_stream(request: ChatRequest):
-    """
-    Stream chat responses using Server-Sent Events (SSE).
-
-    This endpoint streams responses in real-time from the Ollama API,
-    providing a better user experience for longer responses.
-
-    Args:
-        request: ChatRequest containing the message and parameters
-
-    Returns:
-        StreamingResponse with SSE formatted data
-    """
-    async def generate():
-        try:
-            # Generate response chunks
-            async for chunk in chat_service.chat_stream(request):
-                # Format as SSE
-                data = json.dumps(chunk)
-                yield f"data: {data}\n\n"
-        except Exception as e:
-            logger.error(f"Streaming failed: {str(e)}")
-            error_data = json.dumps({"error": str(e)})
-            yield f"data: {error_data}\n\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable Nginx buffering
-        }
-    )
+chat_repo = ChatRepository()
+message_repo = MessageRepository()
 
 
-@router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    Process a chat message using RAG pipeline.
+class ChatStreamRequest(BaseModel):
+    """Request body for streaming chat."""
 
-    This endpoint processes user messages by:
-    1. Searching for relevant context from the vector store
-    2. Building citations from matched documents
-    3. Generating a response using the LLM with context
-    4. Storing the conversation history
-
-    Args:
-        request: ChatRequest containing the message and parameters
-
-    Returns:
-        ChatResponse with generated text, citations, and metadata
-
-    Raises:
-        HTTPException: 500 if processing fails
-
-    Example:
-        ```python
-        response = requests.post("/api/v1/chat/", json={
-            "message": "What is machine learning?",
-            "include_citations": True,
-            "temperature": 0.7
-        })
-        ```
-    """
-    try:
-        response = await chat_service.chat(request)
-        return response
-    except Exception as e:
-        logger.error(f"Chat processing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    message: str
+    conversation_id: Optional[str] = None
+    temperature: float = 0.7
+    include_transcript: bool = True
 
 
-@router.get("/conversations/{conversation_id}/history")
-async def get_conversation_history(
-    conversation_id: str = Path(..., description="Unique conversation identifier")
+async def stream_chat_response(
+    message: str,
+    conversation_id: Optional[str],
+    temperature: float,
+    include_transcript: bool,
 ):
-    """
-    Retrieve the complete history of a conversation.
-
-    Args:
-        conversation_id: Unique identifier of the conversation
-
-    Returns:
-        Dict containing conversation_id and list of messages
-
-    Raises:
-        HTTPException: 404 if conversation not found
-        HTTPException: 500 if retrieval fails
-
-    Example:
-        ```python
-        response = requests.get("/api/v1/chat/conversations/abc123/history")
-        # Returns: {"conversation_id": "abc123", "messages": [...]}
-        ```
-    """
+    """Generate streaming chat response."""
     try:
-        history = await chat_service.get_conversation_history(conversation_id)
-        if not history:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        return {"conversation_id": conversation_id, "messages": history}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get conversation history: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Check for YouTube URLs in the message
+        youtube_urls = find_youtube_urls(message)
+        video_id = None
+        transcript = None
+        artifact_type = None
+        artifact_data = None
+        is_first_message = False
 
+        if youtube_urls:
+            video_info = youtube_urls[0]
+            video_id = video_info["video_id"]
+            artifact_type = "youtube"
+            artifact_data = {"video_id": video_id, "url": video_info["url"]}
 
-@router.delete("/conversations/{conversation_id}")
-async def clear_conversation(
-    conversation_id: str = Path(..., description="Conversation to clear")
-):
-    """
-    Clear/delete a specific conversation history.
+            # Notify frontend about YouTube detection
+            yield {
+                "event": "message",
+                "data": json.dumps({
+                    "type": "youtube_detected",
+                    "video_id": video_id,
+                    "url": video_info["url"],
+                }),
+            }
 
-    This permanently removes all messages from the conversation.
-    Useful for privacy or starting fresh.
+            # Notify frontend that we're loading transcript
+            if include_transcript:
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "type": "transcript_loading",
+                        "video_id": video_id,
+                    }),
+                }
 
-    Args:
-        conversation_id: ID of conversation to clear
+                # Fetch transcript - this must complete before LLM starts
+                result = youtube_service.get_transcript(video_id)
+                if result.success:
+                    transcript = result.transcript
+                    artifact_data["transcript_available"] = True
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "transcript_status",
+                            "success": True,
+                            "video_id": video_id,
+                            "language": transcript.language_code if transcript else None,
+                            "segment_count": len(transcript.segments) if transcript else 0,
+                        }),
+                    }
+                else:
+                    artifact_data["transcript_available"] = False
+                    artifact_data["transcript_error"] = result.error_message
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "transcript_status",
+                            "success": False,
+                            "video_id": video_id,
+                            "error_type": result.error_type,
+                            "error_message": result.error_message,
+                        }),
+                    }
 
-    Returns:
-        Success message
-
-    Raises:
-        HTTPException: 404 if conversation not found
-        HTTPException: 500 if deletion fails
-    """
-    try:
-        success = await chat_service.clear_conversation(conversation_id)
-        if success:
-            return {"message": "Conversation cleared successfully"}
+        # Create or get chat
+        if conversation_id:
+            chat = chat_repo.get_by_id(conversation_id)
+            if not chat:
+                # Create new chat with a temporary title
+                chat = Chat(id=conversation_id, title="New Chat")
+                chat = chat_repo.create(chat)
+                is_first_message = True
         else:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    except HTTPException:
-        raise
+            chat = Chat(title="New Chat")
+            chat = chat_repo.create(chat)
+            conversation_id = chat.id
+            is_first_message = True
+
+        # Save user message
+        user_message = Message(
+            chat_id=conversation_id,
+            role="user",
+            content=message,
+            artifact_type=artifact_type,
+            artifact_data=artifact_data,
+        )
+        message_repo.create(user_message)
+
+        # Check if this is really the first message
+        if not is_first_message:
+            is_first_message = message_repo.count_by_chat_id(conversation_id) == 1
+
+        # Build context messages
+        context_messages = []
+
+        # System message with context
+        system_content = """You are a helpful AI assistant called Local Mind. You help users with various tasks including analyzing YouTube videos.
+
+IMPORTANT RULES:
+1. NEVER output raw transcripts or large blocks of unprocessed text
+2. Always provide structured, well-organized responses
+3. Use markdown formatting (headers, bullet points, etc.) for readability
+4. Keep responses concise and focused
+
+When the user shares a YouTube video:
+- Provide a well-structured SUMMARY with key points, NOT the raw transcript
+- Use sections like: **Overview**, **Key Points**, **Main Topics**, **Takeaways**
+- Reference specific timestamps when relevant (format: [MM:SS])
+- Extract insights, don't just repeat what was said
+- If the user asks for specific information, answer directly without dumping the transcript"""
+
+        if transcript:
+            # Include transcript in context - the transcript is now available
+            transcript_text = transcript.full_text
+            if len(transcript_text) > 8000:
+                transcript_text = transcript_text[:8000] + "... [transcript truncated]"
+            system_content += f"""
+
+The user is viewing a YouTube video (ID: {video_id}).
+
+TRANSCRIPT (for your reference only - DO NOT output this verbatim):
+---
+{transcript_text}
+---
+
+Based on this transcript, provide a helpful, structured response. If this is the first message about this video, give a comprehensive summary with key points and main topics discussed."""
+        elif youtube_urls and not transcript:
+            system_content += f"\n\nThe user shared a YouTube video (ID: {video_id}) but the transcript could not be extracted. Let them know you can't access the video content."
+
+        context_messages.append(ChatMessage(role="system", content=system_content))
+
+        # Add recent conversation history (only from current chat, not other chats)
+        recent_messages = message_repo.get_recent_by_chat_id(conversation_id, limit=10)
+        for msg in recent_messages:
+            if msg.id != user_message.id:  # Don't duplicate the current message
+                context_messages.append(ChatMessage(role=msg.role, content=msg.content))
+
+        # Add current message
+        context_messages.append(ChatMessage(role="user", content=message))
+
+        # Notify frontend that LLM is starting
+        yield {
+            "event": "message",
+            "data": json.dumps({
+                "type": "llm_starting",
+            }),
+        }
+
+        # Stream LLM response
+        full_response = ""
+        try:
+            for chunk in llm_service.chat_stream(context_messages, temperature=temperature):
+                full_response += chunk
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "type": "content",
+                        "content": chunk,
+                    }),
+                }
+        except Exception as e:
+            logger.error(f"LLM streaming error: {e}")
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "refused" in error_msg.lower():
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "type": "error",
+                        "error": f"Cannot connect to LLM service. Please check that the LLM server is running at {llm_service.base_url}",
+                    }),
+                }
+            else:
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "type": "error",
+                        "error": f"LLM error: {error_msg}",
+                    }),
+                }
+            return
+
+        # Save assistant message
+        if full_response:
+            assistant_message = Message(
+                chat_id=conversation_id,
+                role="assistant",
+                content=full_response,
+            )
+            message_repo.create(assistant_message)
+
+            # Update chat timestamp
+            chat_repo.touch(conversation_id)
+
+        # Generate title using LLM if this is the first message
+        generated_title = None
+        if is_first_message:
+            try:
+                # Run title generation in a thread pool to not block
+                loop = asyncio.get_event_loop()
+                generated_title = await loop.run_in_executor(
+                    None, generate_chat_title, message, 50
+                )
+                if generated_title:
+                    chat_repo.update_title(conversation_id, generated_title)
+            except Exception as e:
+                logger.warning(f"Failed to generate title: {e}")
+                # Fall back to truncated message
+                generated_title = message[:50] + ("..." if len(message) > 50 else "")
+                chat_repo.update_title(conversation_id, generated_title)
+
+        # Send done event with title if generated
+        done_data = {
+            "type": "done",
+            "conversation_id": conversation_id,
+        }
+        if generated_title:
+            done_data["title"] = generated_title
+
+        yield {
+            "event": "message",
+            "data": json.dumps(done_data),
+        }
+
     except Exception as e:
-        logger.error(f"Failed to clear conversation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Chat stream error: {e}")
+        yield {
+            "event": "message",
+            "data": json.dumps({
+                "type": "error",
+                "error": str(e),
+            }),
+        }
 
 
-@router.post("/feedback")
-async def submit_feedback(
-    conversation_id: str = Query(..., description="Conversation ID"),
-    message_index: int = Query(..., ge=0, description="Message index in conversation"),
-    feedback: str = Query(..., min_length=1, description="Feedback text"),
-    rating: Optional[int] = Query(None, ge=1, le=5, description="Rating 1-5")
-):
-    """
-    Submit feedback for a specific message in a conversation.
-
-    Collects user feedback to improve response quality.
-    Currently stores in memory; production should use persistent storage.
-
-    Args:
-        conversation_id: ID of the conversation
-        message_index: Index of the message being rated
-        feedback: Text feedback from user
-        rating: Optional numeric rating (1-5)
-
-    Returns:
-        Confirmation of feedback receipt
-
-    Note:
-        This is a placeholder implementation. Production systems should:
-        - Store feedback in a database
-        - Implement analytics dashboards
-        - Use feedback for model fine-tuning
-    """
-    return {
-        "message": "Feedback received",
-        "conversation_id": conversation_id,
-        "message_index": message_index,
-        "feedback": feedback,
-        "rating": rating
-    }
+@router.post("/chat/stream")
+async def chat_stream(request: ChatStreamRequest):
+    """Stream a chat response using Server-Sent Events."""
+    return EventSourceResponse(
+        stream_chat_response(
+            message=request.message,
+            conversation_id=request.conversation_id,
+            temperature=request.temperature,
+            include_transcript=request.include_transcript,
+        ),
+        media_type="text/event-stream",
+    )

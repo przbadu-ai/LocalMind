@@ -1,5 +1,14 @@
-from .document_service import DocumentService
-from .vector_service import VectorService
-from .chat_service import ChatService
+"""Business logic services for LocalMind."""
 
-__all__ = ["DocumentService", "VectorService", "ChatService"]
+from services.llm_service import LLMService, llm_service
+from services.mcp_service import MCPService, mcp_service
+from services.youtube_service import YouTubeService, youtube_service
+
+__all__ = [
+    "LLMService",
+    "llm_service",
+    "YouTubeService",
+    "youtube_service",
+    "MCPService",
+    "mcp_service",
+]

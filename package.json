@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:frontend": "vite",
+    "dev": "vite --host 0.0.0.0",
+    "dev:frontend": "vite --host 0.0.0.0",
     "dev:backend": "./bin/start_backend.sh",
     "dev:all": "./bin/dev.sh",
     "build": "tsc && vite build && cd backend && python bundle_backend.py",

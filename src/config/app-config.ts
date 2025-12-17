@@ -44,19 +44,11 @@ export interface AppConfig {
   };
   storage: {
     data_dir: string;
-    lancedb_path: string;
-    documents_path: string;
-    max_upload_size_mb: number;
-  };
-  processing: {
-    chunk_size: number;
-    chunk_overlap: number;
-    max_chunks_per_query: number;
+    database_path: string;
   };
   features: {
-    enable_position_tracking: boolean;
-    enable_citations: boolean;
-    enable_highlighting: boolean;
+    enable_youtube: boolean;
+    enable_mcp: boolean;
     enable_offline_mode: boolean;
   };
 }
@@ -128,12 +120,16 @@ class ConfigLoader {
     return this.config.features.enable_offline_mode;
   }
 
-  get enableCitations(): boolean {
-    return this.config.features.enable_citations;
+  get isYouTubeEnabled(): boolean {
+    return this.config.features.enable_youtube;
   }
 
-  get enableHighlighting(): boolean {
-    return this.config.features.enable_highlighting;
+  get isMCPEnabled(): boolean {
+    return this.config.features.enable_mcp;
+  }
+
+  get databasePath(): string {
+    return this.config.storage.database_path;
   }
 }
 
@@ -150,3 +146,5 @@ export const OLLAMA_BASE_URL = appConfig.ollamaBaseUrl;
 export const OLLAMA_HOST = appConfig.ollamaHost;
 export const OLLAMA_PORT = appConfig.ollamaPort;
 export const EMBEDDING_MODEL = appConfig.embeddingModel;
+export const YOUTUBE_ENABLED = appConfig.isYouTubeEnabled;
+export const MCP_ENABLED = appConfig.isMCPEnabled;

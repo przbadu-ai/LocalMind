@@ -1,340 +1,405 @@
 # Local Mind
 
-An open-source, offline-first desktop RAG (Retrieval-Augmented Generation) application that provides intelligent document analysis with advanced citation and highlighting features - all running completely locally on your machine.
+A privacy-focused, offline-first AI chat application with YouTube video analysis, smart transcription, and LLM-powered conversations - all running locally on your machine.
 
-## 🎯 Overview
+![Local Mind Screenshot](docs/screenshot.png)
 
-Local Mind is a privacy-focused desktop application that brings AI-powered document intelligence to your local machine. Inspired by tools like hyperlink.nexa.ai, it offers advanced RAG capabilities without requiring an internet connection or sending your data to external servers.
+## What is Local Mind?
 
-### Key Features
+Local Mind is a desktop application that lets you:
 
-- **🔒 Fully Offline Operation** - No internet required, your data never leaves your machine
-- **🖥️ Cross-Platform** - Works on Windows, Linux, and macOS
-- **📄 Multi-Format Support** - PDF, DOCX, MD, TXT, PPTX, PNG/JPEG
-- **🤖 Local AI Models** - Support for GGUF, MLX formats via Nexa SDK
-- **🔗 OpenAI-Compatible API** - Connect to local inference servers (Ollama, vLLM, llamacpp)
-- **📍 Clickable Citations** - Each response paragraph links directly to source documents
-- **✨ Smart Highlighting** - Click/hover on responses to see exact source location in documents
+1. **Chat with AI** - Have conversations with local LLMs (Ollama, LlamaCpp, etc.) or cloud providers (OpenAI)
+2. **Analyze YouTube Videos** - Paste a YouTube URL and get intelligent summaries, Q&A, and insights from video transcripts
+3. **Keep Everything Local** - Your data stays on your machine. No cloud dependencies required.
 
-## 🚀 Getting Started
+## Key Features
+
+### AI Chat
+- **Streaming Responses** - Real-time token-by-token response streaming
+- **LLM-Generated Titles** - Chat titles are automatically generated based on conversation content
+- **Thinking Process Display** - Collapsible "Thinking" blocks show LLM reasoning when applicable
+- **Markdown Rendering** - Full markdown support with code highlighting, tables, and more
+- **Chat History** - All conversations are saved locally in SQLite
+
+### YouTube Integration
+- **Automatic Transcript Extraction** - Just paste a YouTube URL to extract the full transcript
+- **Smart Summarization** - Get structured summaries with key points, not raw transcript dumps
+- **Interactive Timestamps** - Click timestamps in the transcript to seek the video
+- **Side-by-Side View** - Watch the video while reading the transcript and chatting
+- **Grouped Segments** - Transcripts are grouped into 10-60 second chunks for better readability
+
+### Privacy & Flexibility
+- **Offline-First** - Works with local LLM servers, no internet required for chat
+- **Multiple LLM Providers** - Supports Ollama, LlamaCpp, vLLM, OpenAI, and any OpenAI-compatible API
+- **Configure via Settings** - Change LLM provider, model, and API URL from the app's Settings page
+- **Network Access** - Access the app from mobile devices or other PCs on your network
+
+### MCP (Model Context Protocol) Support
+- **Add MCP Servers** - Configure external MCP servers for extended capabilities
+- **Tool Integration** - Use tools provided by MCP servers in your conversations
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Desktop** | Tauri (Rust) |
+| **Frontend** | React 19 + TypeScript + Vite |
+| **UI** | Shadcn UI + Tailwind CSS |
+| **State** | Zustand |
+| **Backend** | Python FastAPI |
+| **AI Agents** | Pydantic AI |
+| **Database** | SQLite |
+
+## Getting Started
 
 ### Prerequisites
 
-- **Node.js 18+** or **[Bun](https://bun.sh/)** (recommended for faster performance)
-- **[Rust](https://www.rust-lang.org/tools/install)** (latest stable)
-- **Python 3.8+** with pip
-- **Git**
-- **[Ollama](https://ollama.ai/)** (optional, for local LLM inference)
+- **[Bun](https://bun.sh/)** - JavaScript runtime and package manager
+- **[Rust](https://www.rust-lang.org/tools/install)** - Required for Tauri (latest stable)
+- **Python 3.11+** - Backend runtime
+- **[uv](https://docs.astral.sh/uv/)** - Fast Python package manager
+- **LLM Server** - [Ollama](https://ollama.ai/), LlamaCpp, or any OpenAI-compatible endpoint
 
-## 📦 Development Setup
-
-We provide two ways to set up your development environment: using **Bun** (recommended) or **npm**.
-
-### Using Bun (Recommended) 🚀
-
-Bun is a fast JavaScript runtime that significantly speeds up development.
-
-#### 1. Install Bun
+### Quick Start
 
 ```bash
-# macOS/Linux
-curl -fsSL https://bun.sh/install | bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/LocalMind.git
+cd LocalMind
 
-# Windows (PowerShell)
-powershell -c "irm bun.sh/install.ps1|iex"
-```
-
-#### 2. Clone and Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/local-mind.git
-cd local-mind
-
-# Install frontend dependencies
+# 2. Install frontend dependencies
 bun install
 
-# Setup Python backend
+# 3. Setup Python backend
 cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+uv venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uv pip install -r requirements.txt
 cd ..
-```
 
-#### 3. Run Development Server
+# 4. Start your LLM server (example with Ollama)
+ollama pull llama3:instruct
+ollama serve  # Runs on http://localhost:11434
 
-```bash
-# Start both frontend and backend with one command
+# 5. Run the app (starts both frontend and backend)
 bun tauri:dev
-
-# Or run them separately:
-bun dev:frontend  # Frontend only
-bun dev:backend   # Backend only
 ```
 
-#### 4. Build for Production
+The app will be available at:
+- **Desktop**: Tauri window opens automatically
+- **Browser**: http://localhost:1420
+- **Network**: http://your-ip:1420 (accessible from mobile/other PCs)
+
+### Configure LLM Settings
+
+1. Open the app and go to **Settings** (gear icon in sidebar)
+2. Configure your LLM provider:
+   - **Provider**: Ollama, LlamaCpp, or OpenAI
+   - **Base URL**: e.g., `http://localhost:11434/v1` for Ollama
+   - **Model**: e.g., `llama3:instruct`
+3. Click **Test Connection** to verify
+4. Click **Save Settings**
+
+## Usage
+
+### Basic Chat
+
+1. Click **+ New Chat** in the sidebar
+2. Type your message and press Enter
+3. The AI will respond with streaming text
+
+### YouTube Video Analysis
+
+1. Start a new chat or use an existing one
+2. Paste a YouTube URL: `https://www.youtube.com/watch?v=VIDEO_ID`
+3. Local Mind will:
+   - Extract the video transcript
+   - Display the video player and transcript side-by-side
+   - Generate a structured summary with key points
+4. Ask follow-up questions about the video content!
+
+### Tips
+
+- **Click timestamps** in the transcript to jump to that point in the video
+- **Expand "Thinking" blocks** to see the LLM's reasoning process
+- **Pin important chats** by clicking the pin icon (keeps them at the top)
+- **Access from mobile** - The app is accessible on your local network
+
+## Development
+
+### Running Individual Components
 
 ```bash
-# Build everything (frontend + backend + desktop app)
-bun tauri:build
+# Frontend only (React dev server)
+bun dev
+
+# Backend only
+cd backend && source .venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 52817 --reload
+
+# Full Tauri app
+bun tauri:dev
 ```
 
-### Using npm 📦
+### API Documentation
 
-If you prefer using npm, here's the traditional setup:
+When the backend is running, visit:
+- **Swagger UI**: http://localhost:52817/docs
+- **ReDoc**: http://localhost:52817/redoc
 
-#### 1. Clone and Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/local-mind.git
-cd local-mind
-
-# Install frontend dependencies
-npm install
-
-# Setup Python backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cd ..
-```
-
-#### 2. Run Development Server
-
-```bash
-# Start both frontend and backend
-npm run tauri:dev
-
-# Or run them separately:
-npm run dev:frontend  # Frontend only
-npm run dev:backend   # Backend only
-```
-
-#### 3. Build for Production
-
-```bash
-# Build everything (frontend + backend + desktop app)
-npm run tauri:build
-```
-
-## 🛠️ Available Scripts
-
-### Development Commands
-
-| Command | Bun | npm | Description |
-|---------|-----|-----|-------------|
-| Dev (All) | `bun tauri:dev` | `npm run tauri:dev` | Start frontend + backend + Tauri |
-| Frontend Only | `bun dev:frontend` | `npm run dev:frontend` | Start Vite dev server |
-| Backend Only | `bun dev:backend` | `npm run dev:backend` | Start Python FastAPI server |
-| Build All | `bun tauri:build` | `npm run tauri:build` | Build production app |
-| Build Frontend | `bun build:frontend` | `npm run build:frontend` | Build frontend only |
-| Build Backend | `bun build:backend` | `npm run build:backend` | Bundle Python backend |
-
-### Quick Start Commands
-
-```bash
-# 🚀 Development (everything runs with one command!)
-bun tauri:dev  # or: npm run tauri:dev
-
-# 📦 Production Build
-bun tauri:build  # or: npm run tauri:build
-```
-
-## 🏗️ Tech Stack
-
-### Frontend
-- **Framework**: React + TypeScript
-- **UI Components**: Shadcn UI with Radix UI primitives
-- **Styling**: Tailwind CSS v3
-- **State Management**: Zustand
-- **Routing**: React Router DOM (HashRouter)
-
-### Backend
-- **Desktop Framework**: Tauri (Rust)
-- **API Server**: Python FastAPI (sidecar process)
-- **Vector Database**: LanceDB (embedded, file-based)
-- **Document Processing**: PyMuPDF
-- **Model Inference**: Nexa SDK
-
-### Build Tools
-- **Bundler**: Vite
-- **Package Manager**: Bun/npm
-- **Type Checking**: TypeScript
-
-## 📁 Project Structure
+### Project Structure
 
 ```
-local-mind/
+LocalMind/
 ├── src/                    # React frontend
 │   ├── components/         # UI components
-│   │   ├── ui/            # Shadcn UI components
-│   │   └── ...            # App-specific components
-│   ├── pages/             # Route pages
-│   ├── hooks/             # Custom React hooks
-│   └── lib/               # Utilities
-├── src-tauri/             # Tauri backend (Rust)
-│   ├── src/               # Rust source code
-│   └── tauri.conf.json   # Tauri configuration
-├── backend/               # Python FastAPI server
-│   ├── api/               # API endpoints
-│   ├── config/            # Configuration management
-│   ├── core/              # Core functionality
-│   ├── models/            # Data models
-│   ├── services/          # Business logic
-│   └── main.py           # FastAPI entry point
-├── bin/                   # Executable scripts
-│   ├── dev.sh            # Unix dev starter
-│   ├── dev.bat           # Windows dev starter
-│   ├── start_backend.sh  # Backend startup script
-│   ├── start_backend.bat # Backend startup (Windows)
-│   └── run_dev.sh        # Direct backend runner
-└── data/                  # Application data (auto-created)
-    ├── lancedb/          # Vector storage
-    └── uploads/          # Uploaded documents
-
-## ⚙️ Configuration
-
-### Backend API
-
-The backend server runs on `http://localhost:52817` by default. API documentation is available at:
-- Swagger UI: `http://localhost:52817/docs`
-- ReDoc: `http://localhost:52817/redoc`
-
-### LLM Setup (Ollama)
-
-1. Install Ollama from [ollama.ai](https://ollama.ai/)
-2. Pull a model:
-```bash
-ollama pull llama2  # or any other model
-```
-3. The app will automatically detect and use Ollama
-
-### Application Settings
-
-Settings are stored in platform-specific locations:
-- **Windows**: `%APPDATA%\LocalMind\config.json`
-- **macOS**: `~/Library/Application Support/LocalMind/config.json`
-- **Linux**: `~/.config/LocalMind/config.json`
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Backend not starting:**
-```bash
-# Check Python version (needs 3.8+)
-python --version
-
-# Reinstall dependencies
-cd backend
-pip install -r requirements.txt
+│   │   ├── ui/             # Shadcn components
+│   │   ├── youtube/        # Video player & transcript
+│   │   └── MarkdownRenderer.tsx  # Markdown with thinking blocks
+│   ├── pages/              # Route pages
+│   │   ├── ChatDetails.tsx # Main chat interface
+│   │   └── Settings.tsx    # LLM & MCP configuration
+│   ├── services/           # API clients
+│   └── stores/             # Zustand state
+├── src-tauri/              # Tauri (Rust) desktop shell
+├── backend/                # Python FastAPI
+│   ├── agents/             # Pydantic AI agents
+│   │   ├── chat_agent.py   # Chat functionality
+│   │   ├── youtube_agent.py # Video analysis
+│   │   └── title_agent.py  # LLM title generation
+│   ├── api/                # REST endpoints
+│   ├── database/           # SQLite with repositories
+│   └── services/           # Business logic
+├── app.config.json         # Shared configuration
+└── data/                   # SQLite database & cache
 ```
 
-**Tauri build fails:**
-```bash
-# Update Rust
-rustup update
+## Configuration
 
-# Clean and rebuild
-cargo clean
+### app.config.json
+
+The main configuration file for both frontend and backend:
+
+```json
+{
+  "backend": {
+    "host": "0.0.0.0",
+    "port": 52817,
+    "api_base_url": "http://127.0.0.1:52817"
+  },
+  "models": {
+    "llm": {
+      "provider": "ollama",
+      "default_model": "llama3:instruct",
+      "ollama": {
+        "base_url": "http://localhost:11434"
+      }
+    }
+  },
+  "features": {
+    "enable_youtube": true,
+    "enable_mcp": true
+  }
+}
+```
+
+### Environment Variables
+
+LLM settings are managed via the Settings page, but you can also use environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BACKEND_HOST` | Server bind address | `0.0.0.0` |
+| `BACKEND_PORT` | Server port | `52817` |
+| `DATABASE_PATH` | SQLite database path | `./data/local_mind.db` |
+
+## Building for Production
+
+### Desktop App (Tauri)
+
+```bash
+# Build the Tauri desktop app
 bun tauri build
 ```
 
-**Port already in use:**
-```bash
-# Kill process on port 52817 (backend)
-# Linux/Mac
-lsof -ti:52817 | xargs kill -9
+Output will be in `src-tauri/target/release/`:
+- **Linux**: `.deb`, `.AppImage`
+- **macOS**: `.dmg`, `.app`
+- **Windows**: `.msi`, `.exe`
 
-# Windows
-netstat -ano | findstr :52817
-taskkill /PID <PID> /F
+### Docker Deployment
+
+Local Mind can also run as a web application using Docker, perfect for hosting on a server, LXC container, or NAS.
+
+#### Quick Start with Docker Compose
+
+```bash
+# Clone and navigate to the project
+git clone https://github.com/yourusername/LocalMind.git
+cd LocalMind
+
+# Build and start containers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
 ```
 
-## 🤝 Contributing
+The app will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:52817
 
-We welcome contributions from the community! Here's how you can help:
+#### Docker Configuration
 
-### Development Workflow
+**Environment Variables:**
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_PATH` | SQLite database path | `/app/data/local_mind.db` |
 
-### Contribution Guidelines
+**Volumes:**
 
-- Follow the existing code style and conventions
-- Write clear, descriptive commit messages
-- Add tests for new features when applicable
-- Update documentation as needed
-- Be respectful and constructive in discussions
+The `localmind-data` volume persists your database and settings between container restarts.
 
-### Areas for Contribution
+**Custom Configuration:**
 
-- 🐛 Bug fixes and issue resolution
-- ✨ New features and enhancements
-- 📚 Documentation improvements
-- 🎨 UI/UX improvements
-- 🚀 Performance optimizations
-- 🧪 Test coverage expansion
-- 🌍 Internationalization
+Edit `app.config.json` before building to customize LLM settings:
 
-## 🗺️ Roadmap
+```json
+{
+  "models": {
+    "llm": {
+      "provider": "ollama",
+      "default_model": "llama3:instruct",
+      "ollama": {
+        "base_url": "http://your-ollama-server:11434"
+      }
+    }
+  }
+}
+```
 
-### Phase 1 (MVP) - Current
-- ✅ Basic document ingestion (PDF, TXT, MD)
-- ✅ Tauri shell with React frontend
-- ⬜ Simple RAG pipeline with LanceDB
-- ⬜ Basic search interface
-- ⬜ FastAPI backend integration
+#### Building Individual Images
 
-### Phase 2 (Killer Features)
-- ⬜ Position tracking in PyMuPDF
-- ⬜ Clickable citations implementation
-- ⬜ Document highlighting system
-- ⬜ Model management UI
-- ⬜ Multiple embedding models support
+```bash
+# Build frontend only
+docker build -t localmind-frontend .
 
-### Phase 3 (Polish)
-- ⬜ Performance optimization
-- ⬜ Advanced chunking strategies
-- ⬜ Comprehensive testing
-- ⬜ Plugin architecture
-- ⬜ Public release
+# Build backend only
+docker build -t localmind-backend ./backend
+```
 
-## 📝 License
+#### Docker Compose Commands
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+```bash
+# Start in background
+docker-compose up -d
 
-## 🙏 Acknowledgments
+# Stop containers
+docker-compose down
 
-- Inspired by [hyperlink.nexa.ai](https://hyperlink.nexa.ai)
-- Built with [Tauri](https://tauri.app/)
-- UI components from [Shadcn UI](https://ui.shadcn.com/)
-- Vector database by [LanceDB](https://lancedb.com/)
+# Rebuild after code changes
+docker-compose up -d --build
 
-## 📧 Contact
+# View logs
+docker-compose logs -f
 
-For questions, suggestions, or discussions:
-- Open an issue on GitHub
-- Join our Discord community (coming soon)
-- Email: your-email@example.com
+# Remove volumes (WARNING: deletes data)
+docker-compose down -v
+```
 
-## ⚡ Performance Targets
+#### Connecting to External LLM Server
 
-- Bundle size: <10MB (Tauri advantage)
-- Memory usage: <100MB idle
-- Query response: <100ms
-- Document indexing: <5 seconds per PDF
-- Startup time: <1 second
+When running in Docker, update the LLM base URL in Settings to point to your LLM server. If running Ollama on the host machine:
 
----
+- **Linux**: Use `http://host.docker.internal:11434` or your host's IP address
+- **macOS/Windows**: Use `http://host.docker.internal:11434`
 
-**Note**: This project is under active development. Features and APIs may change.
+Or run Ollama in Docker on the same network:
 
-Built with ❤️ for the open-source community
+```yaml
+# Add to docker-compose.yml
+services:
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - localmind-network
+
+volumes:
+  ollama-data:
+```
+
+## Troubleshooting
+
+### LLM Connection Issues
+
+```bash
+# Verify Ollama is running
+curl http://localhost:11434/api/tags
+
+# Check the OpenAI-compatible endpoint
+curl http://localhost:11434/v1/models
+```
+
+### Port Already in Use
+
+```bash
+# Kill processes on the ports
+lsof -ti :52817 | xargs kill -9  # Backend
+lsof -ti :1420 | xargs kill -9   # Frontend
+```
+
+### YouTube Transcript Not Loading
+
+Some videos don't have transcripts available. The app will show an error message with helpful suggestions if extraction fails.
+
+### Docker Issues
+
+```bash
+# Check container status
+docker-compose ps
+
+# View container logs
+docker-compose logs frontend
+docker-compose logs backend
+
+# Rebuild containers after code changes
+docker-compose up -d --build
+
+# Reset everything (WARNING: deletes data)
+docker-compose down -v
+docker-compose up -d --build
+```
+
+**Backend can't connect to LLM server:**
+- Ensure the LLM server is accessible from inside the Docker network
+- Use host IP address instead of `localhost` (e.g., `http://192.168.1.100:11434`)
+- On Linux, you can use `http://host.docker.internal:11434` with `extra_hosts` in docker-compose
+
+## Roadmap
+
+- [ ] Document upload and RAG (PDF, DOCX, etc.)
+- [ ] Voice input/output
+- [ ] Image analysis with vision models
+- [ ] Plugin system for extensions
+- [ ] Export conversations to markdown
+
+## Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+
+## License
+
+Apache 2.0 License - see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+- [Tauri](https://tauri.app/) - Lightweight desktop framework
+- [Shadcn UI](https://ui.shadcn.com/) - Beautiful UI components
+- [Pydantic AI](https://ai.pydantic.dev/) - AI agent framework
+- [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) - YouTube transcript extraction
+- [Ollama](https://ollama.ai/) - Local LLM server

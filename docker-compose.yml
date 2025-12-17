@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # React Frontend served via nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - localmind-network
+    restart: unless-stopped
+
+  # Python FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "52817:52817"
+    volumes:
+      # Persist database
+      - localmind-data:/app/data
+      # Mount app.config.json for configuration
+      - ./app.config.json:/app/app.config.json:ro
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_PATH=/app/data/local_mind.db
+    # Allow container to access host services (e.g., Ollama on host machine)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - localmind-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:52817/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  localmind-network:
+    driver: bridge
+
+volumes:
+  localmind-data:
+    driver: local

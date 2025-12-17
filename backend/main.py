@@ -1,151 +1,87 @@
-"""
-Local Mind Backend API Server
+"""FastAPI application entry point."""
 
-This is the main entry point for the FastAPI backend server that powers
-the Local Mind desktop application. It provides REST APIs for:
-- Document management and processing
-- Vector-based semantic search
-- RAG-powered chat interactions
-- Configuration management
-
-The server can be run as a Tauri sidecar process or standalone for development.
-"""
-
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-from contextlib import asynccontextmanager
 import logging
-import sys
-from pathlib import Path
+from contextlib import asynccontextmanager
 
-# Add backend directory to path for imports
-sys.path.append(str(Path(__file__).parent))
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from config.app_settings import config as app_config, APP_NAME, APP_VERSION, BACKEND_HOST, BACKEND_PORT
-from core import setup_middlewares, setup_exception_handlers
-from api import api_router
+from config import settings
+from database.connection import init_db
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Manage application lifecycle events.
-
-    Handles startup and shutdown operations:
-    - Startup: Initialize services, create directories, load models
-    - Shutdown: Clean up resources, save state
-
-    Args:
-        app: FastAPI application instance
-
-    Yields:
-        Control back to FastAPI during application runtime
-    """
+    """Application lifespan events."""
     # Startup
-    logger.info(f"Starting {APP_NAME} v{APP_VERSION}")
-    logger.info(f"Data directory: {app_config.data_dir}")
-    logger.info(f"Debug mode: True")
+    logger.info("Starting LocalMind backend...")
+    logger.info(f"Database path: {settings.database_full_path}")
+    logger.info(f"LLM provider: {settings.llm_provider}")
+    logger.info(f"LLM base URL: {settings.llm_base_url}")
 
-    # TODO: Add startup tasks like:
-    # - Pre-load embedding model
-    # - Verify LLM connectivity
-    # - Initialize database connections
+    # Initialize database
+    init_db()
+    logger.info("Database initialized")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down application")
-    # TODO: Add cleanup tasks
+    logger.info("Shutting down LocalMind backend...")
 
 
-# Create FastAPI application instance
+# Create FastAPI app
 app = FastAPI(
-    title=APP_NAME,
-    version=APP_VERSION,
-    description="""
-    Open-source, offline-first desktop RAG application.
-
-    Features:
-    - 🔒 Fully offline document processing
-    - 🔍 Semantic search with vector embeddings
-    - 💬 RAG-powered chat with citations
-    - 📄 Support for PDF, DOCX, TXT, MD, PPTX
-    - 🎯 Precise document highlighting
-    - ⚙️ Configurable LLM providers
-    """,
+    title="LocalMind API",
+    description="Backend API for LocalMind - LLM chat with YouTube transcription",
+    version="0.1.0",
     lifespan=lifespan,
-    debug=True,
-    docs_url="/docs",
-    redoc_url="/redoc"
 )
 
-# Setup middleware
-setup_middlewares(app)
-
-# Setup exception handlers
-setup_exception_handlers(app)
-
-# Include API routes
-app.include_router(api_router, prefix="/api/v1")
-
-
-@app.get("/", include_in_schema=False)
-async def root():
-    """
-    Root endpoint - redirects to API documentation.
-
-    Returns:
-        RedirectResponse to /docs
-    """
-    return RedirectResponse(url="/docs")
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-@app.get("/api", include_in_schema=False)
-async def api_root():
-    """
-    API root information endpoint.
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "version": "0.1.0"}
 
-    Provides basic information about the API including version,
-    documentation links, and health check endpoint.
 
-    Returns:
-        Dict with API metadata
-    """
-    return {
-        "name": APP_NAME,
-        "version": APP_VERSION,
-        "api_version": "v1",
-        "documentation": "/docs",
-        "redoc": "/redoc",
-        "health": "/api/v1/health",
-        "description": "Local Mind Backend API"
-    }
+# Import and include routers
+from api import chat, chats, mcp, settings as settings_router, youtube
+
+app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
+app.include_router(chats.router, prefix="/api/v1", tags=["Chats"])
+app.include_router(youtube.router, prefix="/api/v1", tags=["YouTube"])
+app.include_router(mcp.router, prefix="/api/v1", tags=["MCP"])
+app.include_router(settings_router.router, prefix="/api/v1", tags=["Settings"])
+
+
+def main():
+    """Run the server."""
+    uvicorn.run(
+        "main:app",
+        host=settings.backend_host,
+        port=settings.backend_port,
+        reload=True,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
-    """
-    Run the application directly for development.
-
-    In production, this will be run as a Tauri sidecar process.
-    For development, you can run: DEBUG=true python main.py
-    """
-    import uvicorn
-
-    uvicorn.run(
-        "main:app",
-        host=BACKEND_HOST,
-        port=BACKEND_PORT,
-        reload=True,
-        log_level="debug"
-    )
+    main()

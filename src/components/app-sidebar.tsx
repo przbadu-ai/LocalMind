@@ -1,23 +1,7 @@
 import {
   MessageSquare,
   Plus,
-  Folder,
-  FileText,
-  Code,
-  Globe,
-  Youtube,
-  Database,
-  Brain,
-  Cpu,
-  Mail,
-  Filter,
-  Upload,
-  Building,
-  Server,
-  Bug,
-  Bell,
-  Smartphone,
-  Palette,
+  Settings,
   Minus,
   Square,
   X,
@@ -46,7 +30,6 @@ import { Button } from "@/components/ui/button"
 
 const navigationItems = [
   { title: "Chats", url: "/chats", icon: MessageSquare },
-  { title: "Settings", url: "/settings", icon: Folder },
 ]
 
 export function AppSidebar() {
@@ -74,9 +57,15 @@ export function AppSidebar() {
 
     loadRecentChats()
 
+    // Listen for chat updates
+    window.addEventListener('chats-updated', loadRecentChats)
+
     // Reload chats when navigating to a new chat
     const intervalId = setInterval(loadRecentChats, 30000) // Refresh every 30 seconds
-    return () => clearInterval(intervalId)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('chats-updated', loadRecentChats)
+    }
   }, [])
 
   const handleNewChat = () => {
@@ -120,7 +109,7 @@ export function AppSidebar() {
           className="flex items-center justify-between h-[55px] px-3"
         >
           <div
-            className="flex items-center gap-1" 
+            className="flex items-center gap-1"
             style={{ position: 'fixed', top: 20, left: 10, width: '250px', zIndex: 10 }}
           >
             <button
@@ -169,13 +158,12 @@ export function AppSidebar() {
             <SidebarMenu>
               {navigationItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild 
-                    className={`${
-                      isActive(item.url) 
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                        : "hover:bg-sidebar-accent/50"
-                    }`}
+                  <SidebarMenuButton
+                    asChild
+                    className={`${isActive(item.url)
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "hover:bg-sidebar-accent/50"
+                      }`}
                   >
                     <NavLink to={item.url} className="flex items-center gap-3">
                       <item.icon className="h-4 w-4" />
@@ -225,13 +213,22 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent/50 cursor-pointer">
-          <div className="flex-1 text-left">
-            <p className="text-sm font-medium text-sidebar-foreground">Version</p>
-            <p className="text-xs text-sidebar-foreground/60">1.0.0</p>
-          </div>
-          {/* <ChevronDown className="h-4 w-4 text-sidebar-foreground/60" /> */}
-        </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              className={`${isActive("/settings")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "hover:bg-sidebar-accent/50"
+                }`}
+            >
+              <NavLink to="/settings" className="flex items-center gap-3">
+                <Settings className="h-4 w-4" />
+                <span>Settings</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   )
