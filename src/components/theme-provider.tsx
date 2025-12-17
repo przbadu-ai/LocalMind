@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react"
+import { invoke } from '@tauri-apps/api/core'
 
 type Theme = "dark" | "light" | "system"
 
@@ -42,10 +43,14 @@ export function ThemeProvider({
         : "light"
 
       root.classList.add(systemTheme)
+      // Sync theme with Tauri window
+      invoke('set_app_theme', { theme: systemTheme }).catch(console.error)
       return
     }
 
     root.classList.add(theme)
+    // Sync theme with Tauri window
+    invoke('set_app_theme', { theme }).catch(console.error)
   }, [theme])
 
   const value = {
