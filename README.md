@@ -1,219 +1,199 @@
 # Local Mind
 
-An AI chat application with YouTube transcription, MCP (Model Context Protocol) support, and OpenAI-compatible API integration - all running locally on your machine.
+A privacy-focused, offline-first AI chat application with YouTube video analysis, smart transcription, and LLM-powered conversations - all running locally on your machine.
 
-## Features
+![Local Mind Screenshot](docs/screenshot.png)
 
-- **AI Chat** - Chat with LLMs using OpenAI-compatible APIs (Ollama, LlamaCpp, vLLM, OpenAI)
-- **YouTube Transcription** - Extract and interact with YouTube video transcripts
-- **Clickable Timestamps** - Click on timestamps in transcripts to seek video
-- **MCP Server Support** - Connect to Model Context Protocol servers for extended capabilities
-- **Offline-First** - Works with local LLM servers, no internet required
-- **Cross-Platform** - Windows, Linux, and macOS support via Tauri
+## What is Local Mind?
+
+Local Mind is a desktop application that lets you:
+
+1. **Chat with AI** - Have conversations with local LLMs (Ollama, LlamaCpp, etc.) or cloud providers (OpenAI)
+2. **Analyze YouTube Videos** - Paste a YouTube URL and get intelligent summaries, Q&A, and insights from video transcripts
+3. **Keep Everything Local** - Your data stays on your machine. No cloud dependencies required.
+
+## Key Features
+
+### AI Chat
+- **Streaming Responses** - Real-time token-by-token response streaming
+- **LLM-Generated Titles** - Chat titles are automatically generated based on conversation content
+- **Thinking Process Display** - Collapsible "Thinking" blocks show LLM reasoning when applicable
+- **Markdown Rendering** - Full markdown support with code highlighting, tables, and more
+- **Chat History** - All conversations are saved locally in SQLite
+
+### YouTube Integration
+- **Automatic Transcript Extraction** - Just paste a YouTube URL to extract the full transcript
+- **Smart Summarization** - Get structured summaries with key points, not raw transcript dumps
+- **Interactive Timestamps** - Click timestamps in the transcript to seek the video
+- **Side-by-Side View** - Watch the video while reading the transcript and chatting
+- **Grouped Segments** - Transcripts are grouped into 10-60 second chunks for better readability
+
+### Privacy & Flexibility
+- **Offline-First** - Works with local LLM servers, no internet required for chat
+- **Multiple LLM Providers** - Supports Ollama, LlamaCpp, vLLM, OpenAI, and any OpenAI-compatible API
+- **Configure via Settings** - Change LLM provider, model, and API URL from the app's Settings page
+- **Network Access** - Access the app from mobile devices or other PCs on your network
+
+### MCP (Model Context Protocol) Support
+- **Add MCP Servers** - Configure external MCP servers for extended capabilities
+- **Tool Integration** - Use tools provided by MCP servers in your conversations
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript + Shadcn UI + Tailwind CSS
-- **Desktop**: Tauri (Rust)
-- **Backend**: Python FastAPI with Pydantic AI agents
-- **Database**: SQLite
-- **State Management**: Zustand
+| Layer | Technology |
+|-------|------------|
+| **Desktop** | Tauri (Rust) |
+| **Frontend** | React 19 + TypeScript + Vite |
+| **UI** | Shadcn UI + Tailwind CSS |
+| **State** | Zustand |
+| **Backend** | Python FastAPI |
+| **AI Agents** | Pydantic AI |
+| **Database** | SQLite |
 
-## Prerequisites
+## Getting Started
 
-- **[Bun](https://bun.sh/)** (recommended) or Node.js 18+
-- **[Rust](https://www.rust-lang.org/tools/install)** (latest stable)
-- **Python 3.11+**
-- **[uv](https://docs.astral.sh/uv/)** (Python package manager)
-- **[Ollama](https://ollama.ai/)** (or other OpenAI-compatible LLM server)
+### Prerequisites
 
-## Quick Start
+- **[Bun](https://bun.sh/)** - JavaScript runtime and package manager
+- **[Rust](https://www.rust-lang.org/tools/install)** - Required for Tauri (latest stable)
+- **Python 3.11+** - Backend runtime
+- **[uv](https://docs.astral.sh/uv/)** - Fast Python package manager
+- **LLM Server** - [Ollama](https://ollama.ai/), LlamaCpp, or any OpenAI-compatible endpoint
 
-### 1. Install uv (Python Package Manager)
-
-```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-### 2. Clone and Setup
+### Quick Start
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/yourusername/LocalMind.git
 cd LocalMind
 
-# Install frontend dependencies
+# 2. Install frontend dependencies
 bun install
 
-# Setup Python backend with uv
+# 3. Setup Python backend
 cd backend
 uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt
 cd ..
 
-# Copy environment file
-cp .env.example .env
-```
-
-### 3. Configure Environment
-
-Edit `.env` with your LLM settings:
-
-```env
-# LLM Configuration
-LLM_PROVIDER=ollama
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_API_KEY=not-required
-LLM_MODEL=llama3:instruct
-
-# Backend Server
-BACKEND_HOST=127.0.0.1
-BACKEND_PORT=52817
-
-# Database
-DATABASE_PATH=./data/local_mind.db
-```
-
-### 4. Start Ollama (or your LLM server)
-
-```bash
-# Install Ollama from https://ollama.ai/
-# Pull a model
+# 4. Start your LLM server (example with Ollama)
 ollama pull llama3:instruct
+ollama serve  # Runs on http://localhost:11434
 
-# Ollama runs on http://localhost:11434 by default
+# 5. Run the app (starts both frontend and backend)
+bun tauri:dev
 ```
 
-### 5. Run the Application
+The app will be available at:
+- **Desktop**: Tauri window opens automatically
+- **Browser**: http://localhost:1420
+- **Network**: http://your-ip:1420 (accessible from mobile/other PCs)
 
-```bash
-# Terminal 1: Start the Python backend
-cd backend
-source .venv/bin/activate
-uvicorn main:app --host 127.0.0.1 --port 52817 --reload
+### Configure LLM Settings
 
-# Terminal 2: Start the frontend (development)
-bun dev
+1. Open the app and go to **Settings** (gear icon in sidebar)
+2. Configure your LLM provider:
+   - **Provider**: Ollama, LlamaCpp, or OpenAI
+   - **Base URL**: e.g., `http://localhost:11434/v1` for Ollama
+   - **Model**: e.g., `llama3:instruct`
+3. Click **Test Connection** to verify
+4. Click **Save Settings**
 
-# Or for Tauri desktop app:
-bun tauri dev
-```
+## Usage
+
+### Basic Chat
+
+1. Click **+ New Chat** in the sidebar
+2. Type your message and press Enter
+3. The AI will respond with streaming text
+
+### YouTube Video Analysis
+
+1. Start a new chat or use an existing one
+2. Paste a YouTube URL: `https://www.youtube.com/watch?v=VIDEO_ID`
+3. Local Mind will:
+   - Extract the video transcript
+   - Display the video player and transcript side-by-side
+   - Generate a structured summary with key points
+4. Ask follow-up questions about the video content!
+
+### Tips
+
+- **Click timestamps** in the transcript to jump to that point in the video
+- **Expand "Thinking" blocks** to see the LLM's reasoning process
+- **Pin important chats** by clicking the pin icon (keeps them at the top)
+- **Access from mobile** - The app is accessible on your local network
 
 ## Development
 
-### Backend Only
+### Running Individual Components
 
 ```bash
-cd backend
-source .venv/bin/activate
-uvicorn main:app --host 127.0.0.1 --port 52817 --reload
-```
-
-The API will be available at:
-- API: http://127.0.0.1:52817
-- Swagger Docs: http://127.0.0.1:52817/docs
-- ReDoc: http://127.0.0.1:52817/redoc
-
-### Frontend Only
-
-```bash
+# Frontend only (React dev server)
 bun dev
+
+# Backend only
+cd backend && source .venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 52817 --reload
+
+# Full Tauri app
+bun tauri:dev
 ```
 
-Frontend runs at http://localhost:1420
+### API Documentation
 
-### Full Tauri App
+When the backend is running, visit:
+- **Swagger UI**: http://localhost:52817/docs
+- **ReDoc**: http://localhost:52817/redoc
 
-```bash
-bun tauri dev
-```
-
-## Project Structure
+### Project Structure
 
 ```
 LocalMind/
-├── src/                          # React frontend
-│   ├── components/               # UI components
-│   │   ├── ui/                   # Shadcn UI components
-│   │   └── youtube/              # YouTube player & transcript
-│   ├── pages/                    # Route pages
-│   ├── services/                 # API clients
-│   └── stores/                   # Zustand state stores
-├── src-tauri/                    # Tauri (Rust) backend
-├── backend/                      # Python FastAPI backend
-│   ├── agents/                   # Pydantic AI agents
-│   │   ├── chat_agent.py         # Main chat agent
-│   │   └── youtube_agent.py      # YouTube summarization/Q&A
-│   ├── api/                      # FastAPI routes
-│   │   ├── chat.py               # SSE streaming chat
-│   │   ├── chats.py              # Chat CRUD
-│   │   ├── youtube.py            # YouTube transcript
-│   │   ├── mcp.py                # MCP server management
-│   │   └── settings.py           # Settings/config
-│   ├── database/                 # SQLite database layer
-│   │   ├── connection.py         # DB connection & schema
-│   │   ├── models.py             # Pydantic models
-│   │   └── repositories/         # Data access layer
-│   ├── services/                 # Business logic
-│   │   ├── llm_service.py        # OpenAI-compatible client
-│   │   ├── youtube_service.py    # Transcript extraction
-│   │   └── mcp_service.py        # MCP server management
-│   └── utils/                    # Utilities
-├── data/                         # Application data
-│   └── local_mind.db             # SQLite database
-├── app.config.json               # App configuration
-└── .env                          # Environment variables
+├── src/                    # React frontend
+│   ├── components/         # UI components
+│   │   ├── ui/             # Shadcn components
+│   │   ├── youtube/        # Video player & transcript
+│   │   └── MarkdownRenderer.tsx  # Markdown with thinking blocks
+│   ├── pages/              # Route pages
+│   │   ├── ChatDetails.tsx # Main chat interface
+│   │   └── Settings.tsx    # LLM & MCP configuration
+│   ├── services/           # API clients
+│   └── stores/             # Zustand state
+├── src-tauri/              # Tauri (Rust) desktop shell
+├── backend/                # Python FastAPI
+│   ├── agents/             # Pydantic AI agents
+│   │   ├── chat_agent.py   # Chat functionality
+│   │   ├── youtube_agent.py # Video analysis
+│   │   └── title_agent.py  # LLM title generation
+│   ├── api/                # REST endpoints
+│   ├── database/           # SQLite with repositories
+│   └── services/           # Business logic
+├── app.config.json         # Shared configuration
+└── data/                   # SQLite database & cache
 ```
-
-## API Endpoints
-
-### Chat
-- `POST /api/v1/chat/stream` - Stream chat response (SSE)
-- `GET /api/v1/chats` - List recent chats
-- `POST /api/v1/chats` - Create new chat
-- `GET /api/v1/chats/{id}` - Get chat with messages
-- `DELETE /api/v1/chats/{id}` - Delete chat
-
-### YouTube
-- `POST /api/v1/youtube/transcript` - Extract transcript from URL
-- `GET /api/v1/youtube/transcript/{video_id}` - Get cached transcript
-- `GET /api/v1/youtube/languages/{video_id}` - Available languages
-
-### MCP
-- `GET /api/v1/mcp/servers` - List MCP servers
-- `POST /api/v1/mcp/servers` - Add server
-- `POST /api/v1/mcp/servers/{id}/start` - Start server
-- `POST /api/v1/mcp/servers/{id}/stop` - Stop server
-- `GET /api/v1/mcp/servers/{id}/tools` - List available tools
-
-### Settings
-- `GET /api/v1/settings/llm` - Get LLM configuration
-- `PUT /api/v1/settings/llm` - Update LLM configuration
-- `GET /api/v1/settings/llm/models` - List available models
-- `GET /api/v1/settings/llm/health` - Check LLM connectivity
 
 ## Configuration
 
 ### app.config.json
 
-Central configuration file for both frontend and backend:
+The main configuration file for both frontend and backend:
 
 ```json
 {
   "backend": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 52817,
     "api_base_url": "http://127.0.0.1:52817"
   },
   "models": {
     "llm": {
       "provider": "ollama",
-      "default_model": "llama3:instruct"
+      "default_model": "llama3:instruct",
+      "ollama": {
+        "base_url": "http://localhost:11434"
+      }
     }
   },
   "features": {
@@ -225,67 +205,70 @@ Central configuration file for both frontend and backend:
 
 ### Environment Variables
 
+LLM settings are managed via the Settings page, but you can also use environment variables:
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LLM_PROVIDER` | LLM provider (ollama/openai/llamacpp) | `ollama` |
-| `LLM_BASE_URL` | OpenAI-compatible API URL | `http://localhost:11434/v1` |
-| `LLM_API_KEY` | API key (use "not-required" for local) | `not-required` |
-| `LLM_MODEL` | Default model name | `llama3:instruct` |
-| `BACKEND_HOST` | Backend server host | `127.0.0.1` |
-| `BACKEND_PORT` | Backend server port | `52817` |
+| `BACKEND_HOST` | Server bind address | `0.0.0.0` |
+| `BACKEND_PORT` | Server port | `52817` |
 | `DATABASE_PATH` | SQLite database path | `./data/local_mind.db` |
 
 ## Building for Production
 
 ```bash
-# Build Tauri desktop app
+# Build the Tauri desktop app
 bun tauri build
 ```
 
-The built application will be in `src-tauri/target/release/`.
+Output will be in `src-tauri/target/release/`:
+- **Linux**: `.deb`, `.AppImage`
+- **macOS**: `.dmg`, `.app`
+- **Windows**: `.msi`, `.exe`
 
 ## Troubleshooting
-
-### Backend Issues
-
-```bash
-# Check Python version (needs 3.11+)
-python --version
-
-# Reinstall dependencies with uv
-cd backend
-uv pip install -r requirements.txt --force-reinstall
-
-# Check if port is in use
-lsof -i :52817  # Linux/macOS
-netstat -ano | findstr :52817  # Windows
-```
 
 ### LLM Connection Issues
 
 ```bash
-# Test Ollama is running
+# Verify Ollama is running
 curl http://localhost:11434/api/tags
 
-# Test OpenAI-compatible endpoint
+# Check the OpenAI-compatible endpoint
 curl http://localhost:11434/v1/models
 ```
 
-### Frontend Issues
+### Port Already in Use
 
 ```bash
-# Clear cache and reinstall
-rm -rf node_modules bun.lockb
-bun install
+# Kill processes on the ports
+lsof -ti :52817 | xargs kill -9  # Backend
+lsof -ti :1420 | xargs kill -9   # Frontend
 ```
+
+### YouTube Transcript Not Loading
+
+Some videos don't have transcripts available. The app will show an error message with helpful suggestions if extraction fails.
+
+## Roadmap
+
+- [ ] Document upload and RAG (PDF, DOCX, etc.)
+- [ ] Voice input/output
+- [ ] Image analysis with vision models
+- [ ] Plugin system for extensions
+- [ ] Export conversations to markdown
+
+## Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
 ## License
 
-Apache 2.0 License - see [LICENSE](LICENSE) file.
+Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Tauri](https://tauri.app/) - Desktop framework
-- [Shadcn UI](https://ui.shadcn.com/) - UI components
+- [Tauri](https://tauri.app/) - Lightweight desktop framework
+- [Shadcn UI](https://ui.shadcn.com/) - Beautiful UI components
 - [Pydantic AI](https://ai.pydantic.dev/) - AI agent framework
-- [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) - YouTube transcripts
+- [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) - YouTube transcript extraction
+- [Ollama](https://ollama.ai/) - Local LLM server

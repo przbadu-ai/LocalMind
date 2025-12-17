@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
+const tauriHost = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -26,14 +26,19 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
-    hmr: host
+    // Use 0.0.0.0 to allow access from mobile/other PCs on the network
+    host: tauriHost || "0.0.0.0",
+    hmr: tauriHost
       ? {
           protocol: "ws",
-          host,
+          host: tauriHost,
           port: 1421,
         }
-      : undefined,
+      : {
+          protocol: "ws",
+          host: "0.0.0.0",
+          port: 1421,
+        },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],

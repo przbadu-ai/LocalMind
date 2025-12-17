@@ -138,20 +138,36 @@ async def stream_chat_response(
         # System message with context
         system_content = """You are a helpful AI assistant called Local Mind. You help users with various tasks including analyzing YouTube videos.
 
+IMPORTANT RULES:
+1. NEVER output raw transcripts or large blocks of unprocessed text
+2. Always provide structured, well-organized responses
+3. Use markdown formatting (headers, bullet points, etc.) for readability
+4. Keep responses concise and focused
+
 When the user shares a YouTube video:
-- If a transcript is available, you can summarize it, answer questions about it, or discuss specific parts
-- Reference timestamps when discussing specific parts of the video (format: [MM:SS] or [HH:MM:SS])
-- Be helpful and informative about the video content
-- Provide a comprehensive summary when first presented with a video"""
+- Provide a well-structured SUMMARY with key points, NOT the raw transcript
+- Use sections like: **Overview**, **Key Points**, **Main Topics**, **Takeaways**
+- Reference specific timestamps when relevant (format: [MM:SS])
+- Extract insights, don't just repeat what was said
+- If the user asks for specific information, answer directly without dumping the transcript"""
 
         if transcript:
             # Include transcript in context - the transcript is now available
             transcript_text = transcript.full_text
             if len(transcript_text) > 8000:
                 transcript_text = transcript_text[:8000] + "... [transcript truncated]"
-            system_content += f"\n\nThe user is viewing a YouTube video (ID: {video_id}). Here is the transcript:\n\n{transcript_text}"
+            system_content += f"""
+
+The user is viewing a YouTube video (ID: {video_id}).
+
+TRANSCRIPT (for your reference only - DO NOT output this verbatim):
+---
+{transcript_text}
+---
+
+Based on this transcript, provide a helpful, structured response. If this is the first message about this video, give a comprehensive summary with key points and main topics discussed."""
         elif youtube_urls and not transcript:
-            system_content += f"\n\nThe user shared a YouTube video (ID: {video_id}) but the transcript could not be extracted. You can still discuss the video but won't have access to its content."
+            system_content += f"\n\nThe user shared a YouTube video (ID: {video_id}) but the transcript could not be extracted. Let them know you can't access the video content."
 
         context_messages.append(ChatMessage(role="system", content=system_content))
 

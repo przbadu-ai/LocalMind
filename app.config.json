@@ -5,13 +5,13 @@
     "description": "AI chat application with YouTube transcription and MCP support"
   },
   "backend": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 52817,
     "api_base_url": "http://127.0.0.1:52817",
     "cors_origins": [
       "http://localhost:1420",
       "tauri://localhost",
-      "http://192.168.1.173:1420"
+      "*"
     ]
   },
   "models": {

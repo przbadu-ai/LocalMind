@@ -51,8 +51,8 @@ class Settings(BaseSettings):
 
     # Backend Server
     backend_host: str = Field(
-        default="127.0.0.1",
-        description="Host to bind the server to",
+        default="0.0.0.0",
+        description="Host to bind the server to (0.0.0.0 for network access)",
     )
     backend_port: int = Field(
         default=52817,
@@ -84,7 +84,9 @@ class Settings(BaseSettings):
         return [
             "http://localhost:1420",
             "tauri://localhost",
-            f"http://{self.backend_host}:1420",
+            "http://0.0.0.0:1420",
+            # Allow all origins in development (for mobile/other PC access)
+            "*",
         ]
 
 
