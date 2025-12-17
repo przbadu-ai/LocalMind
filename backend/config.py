@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     )
 
     # LLM Configuration - configure via Settings page
-    llm_provider: Literal["ollama", "openai", "llamacpp"] = Field(
+    llm_provider: Literal["ollama", "openai", "openai_compatible", "gemini", "cerebras", "claude", "mistral"] = Field(
         default="ollama",
         description="LLM provider to use",
     )

@@ -35,10 +35,25 @@ export interface AppConfig {
         base_url: string;
         models: string[];
       };
-      llamacpp: {
-        host: string;
-        port: number;
+      gemini?: {
         base_url: string;
+        models: string[];
+      };
+      cerebras?: {
+        base_url: string;
+        models: string[];
+      };
+      claude?: {
+        base_url: string;
+        models: string[];
+      };
+      mistral?: {
+        base_url: string;
+        models: string[];
+      };
+      openai_compatible?: {
+        base_url: string;
+        models: string[];
       };
     };
   };

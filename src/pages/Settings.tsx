@@ -43,6 +43,45 @@ interface LLMSettings {
   available: boolean
 }
 
+// Provider configurations with default URLs
+const PROVIDER_CONFIGS: Record<string, { url: string; requiresApiKey: boolean; placeholder: string }> = {
+  ollama: {
+    url: "http://localhost:11434/v1",
+    requiresApiKey: false,
+    placeholder: "llama3:instruct",
+  },
+  openai: {
+    url: "https://api.openai.com/v1",
+    requiresApiKey: true,
+    placeholder: "gpt-4o",
+  },
+  openai_compatible: {
+    url: "http://localhost:8080/v1",
+    requiresApiKey: false,
+    placeholder: "model-name",
+  },
+  gemini: {
+    url: "https://generativelanguage.googleapis.com/v1beta/openai",
+    requiresApiKey: true,
+    placeholder: "gemini-2.0-flash",
+  },
+  cerebras: {
+    url: "https://api.cerebras.ai/v1",
+    requiresApiKey: true,
+    placeholder: "llama-4-scout-17b-16e-instruct",
+  },
+  claude: {
+    url: "https://api.anthropic.com/v1",
+    requiresApiKey: true,
+    placeholder: "claude-sonnet-4-20250514",
+  },
+  mistral: {
+    url: "https://api.mistral.ai/v1",
+    requiresApiKey: true,
+    placeholder: "mistral-large-latest",
+  },
+}
+
 interface MCPServer {
   id: string
   name: string
@@ -329,7 +368,15 @@ export default function Settings() {
                           <Label htmlFor="provider">Provider</Label>
                           <Select
                             value={editedLlm.provider}
-                            onValueChange={(value) => setEditedLlm(prev => ({ ...prev, provider: value }))}
+                            onValueChange={(value) => {
+                              const config = PROVIDER_CONFIGS[value]
+                              setEditedLlm(prev => ({
+                                ...prev,
+                                provider: value,
+                                base_url: config?.url || prev.base_url,
+                                model: config?.placeholder || prev.model,
+                              }))
+                            }}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select provider" />
@@ -337,7 +384,11 @@ export default function Settings() {
                             <SelectContent>
                               <SelectItem value="ollama">Ollama</SelectItem>
                               <SelectItem value="openai">OpenAI</SelectItem>
-                              <SelectItem value="llamacpp">LlamaCpp</SelectItem>
+                              <SelectItem value="gemini">Google Gemini</SelectItem>
+                              <SelectItem value="cerebras">Cerebras</SelectItem>
+                              <SelectItem value="claude">Claude (Anthropic)</SelectItem>
+                              <SelectItem value="mistral">Mistral AI</SelectItem>
+                              <SelectItem value="openai_compatible">OpenAI Compatible</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -348,22 +399,31 @@ export default function Settings() {
                             id="base_url"
                             value={editedLlm.base_url}
                             onChange={(e) => setEditedLlm(prev => ({ ...prev, base_url: e.target.value }))}
-                            placeholder="http://localhost:11434/v1"
+                            placeholder={PROVIDER_CONFIGS[editedLlm.provider]?.url || "http://localhost:11434/v1"}
                           />
                           <p className="text-xs text-muted-foreground">
-                            OpenAI-compatible API endpoint (include /v1 for Ollama)
+                            OpenAI-compatible API endpoint
                           </p>
                         </div>
 
                         <div className="grid gap-2">
-                          <Label htmlFor="api_key">API Key</Label>
+                          <Label htmlFor="api_key">
+                            API Key
+                            {PROVIDER_CONFIGS[editedLlm.provider]?.requiresApiKey && (
+                              <span className="text-red-500 ml-1">*</span>
+                            )}
+                          </Label>
                           <div className="flex gap-2">
                             <Input
                               id="api_key"
                               type={showApiKey ? "text" : "password"}
                               value={editedLlm.api_key}
                               onChange={(e) => setEditedLlm(prev => ({ ...prev, api_key: e.target.value }))}
-                              placeholder={llmSettings?.api_key || "Enter API key (optional for local)"}
+                              placeholder={
+                                PROVIDER_CONFIGS[editedLlm.provider]?.requiresApiKey
+                                  ? "Required - Enter your API key"
+                                  : "Optional for local providers"
+                              }
                             />
                             <Button
                               variant="outline"
@@ -382,7 +442,7 @@ export default function Settings() {
                               id="model"
                               value={editedLlm.model}
                               onChange={(e) => setEditedLlm(prev => ({ ...prev, model: e.target.value }))}
-                              placeholder="gpt-oss:latest"
+                              placeholder={PROVIDER_CONFIGS[editedLlm.provider]?.placeholder || "Enter model name"}
                               list="available-models"
                             />
                             <datalist id="available-models">

@@ -30,12 +30,27 @@
       },
       "openai": {
         "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-3.5-turbo", "gpt-4"]
+        "models": ["gpt-4o", "gpt-4", "gpt-3.5-turbo"]
       },
-      "llamacpp": {
-        "host": "192.168.1.171",
-        "port": 8080,
-        "base_url": "http://192.168.1.171:8080"
+      "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "models": ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
+      },
+      "cerebras": {
+        "base_url": "https://api.cerebras.ai/v1",
+        "models": ["llama-4-scout-17b-16e-instruct", "llama3.1-8b", "llama3.1-70b"]
+      },
+      "claude": {
+        "base_url": "https://api.anthropic.com/v1",
+        "models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"]
+      },
+      "mistral": {
+        "base_url": "https://api.mistral.ai/v1",
+        "models": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"]
+      },
+      "openai_compatible": {
+        "base_url": "http://localhost:8080/v1",
+        "models": []
       }
     }
   },
