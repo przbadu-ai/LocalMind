@@ -12,6 +12,10 @@ from agents.youtube_agent import (
     create_qa_agent,
     create_summary_agent,
 )
+from agents.title_agent import (
+    generate_chat_title,
+    generate_chat_title_async,
+)
 
 __all__ = [
     "ChatDeps",
@@ -22,4 +26,6 @@ __all__ = [
     "VideoQAResponse",
     "create_summary_agent",
     "create_qa_agent",
+    "generate_chat_title",
+    "generate_chat_title_async",
 ]

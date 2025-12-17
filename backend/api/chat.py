@@ -1,5 +1,6 @@
 """Chat streaming API endpoint."""
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -8,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from agents.title_agent import generate_chat_title
 from database.models import Chat, Message
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.message_repository import MessageRepository
@@ -45,6 +47,7 @@ async def stream_chat_response(
         transcript = None
         artifact_type = None
         artifact_data = None
+        is_first_message = False
 
         if youtube_urls:
             video_info = youtube_urls[0]
@@ -105,13 +108,15 @@ async def stream_chat_response(
         if conversation_id:
             chat = chat_repo.get_by_id(conversation_id)
             if not chat:
-                # Create new chat with the provided ID
-                chat = Chat(id=conversation_id, title=message[:50])
+                # Create new chat with a temporary title
+                chat = Chat(id=conversation_id, title="New Chat")
                 chat = chat_repo.create(chat)
+                is_first_message = True
         else:
-            chat = Chat(title=message[:50])
+            chat = Chat(title="New Chat")
             chat = chat_repo.create(chat)
             conversation_id = chat.id
+            is_first_message = True
 
         # Save user message
         user_message = Message(
@@ -123,10 +128,9 @@ async def stream_chat_response(
         )
         message_repo.create(user_message)
 
-        # Update chat title if this is the first message
-        if message_repo.count_by_chat_id(conversation_id) == 1:
-            title = message[:50] + ("..." if len(message) > 50 else "")
-            chat_repo.update_title(conversation_id, title)
+        # Check if this is really the first message
+        if not is_first_message:
+            is_first_message = message_repo.count_by_chat_id(conversation_id) == 1
 
         # Build context messages
         context_messages = []
@@ -213,13 +217,34 @@ When the user shares a YouTube video:
             # Update chat timestamp
             chat_repo.touch(conversation_id)
 
-        # Send done event
+        # Generate title using LLM if this is the first message
+        generated_title = None
+        if is_first_message:
+            try:
+                # Run title generation in a thread pool to not block
+                loop = asyncio.get_event_loop()
+                generated_title = await loop.run_in_executor(
+                    None, generate_chat_title, message, 50
+                )
+                if generated_title:
+                    chat_repo.update_title(conversation_id, generated_title)
+            except Exception as e:
+                logger.warning(f"Failed to generate title: {e}")
+                # Fall back to truncated message
+                generated_title = message[:50] + ("..." if len(message) > 50 else "")
+                chat_repo.update_title(conversation_id, generated_title)
+
+        # Send done event with title if generated
+        done_data = {
+            "type": "done",
+            "conversation_id": conversation_id,
+        }
+        if generated_title:
+            done_data["title"] = generated_title
+
         yield {
             "event": "message",
-            "data": json.dumps({
-                "type": "done",
-                "conversation_id": conversation_id,
-            }),
+            "data": json.dumps(done_data),
         }
 
     except Exception as e:
