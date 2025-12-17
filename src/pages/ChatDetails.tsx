@@ -69,16 +69,19 @@ export default function ChatDetail() {
     }
   }
 
-  // Set the header title based on chatId
   // Reset state when chatId changes
   useEffect(() => {
     chatDataLoaded.current = false
+    hasProcessedInitialMessage.current = false
+    conversationIdRef.current = chatId || ""
     setMessages([])
     setCurrentChat(null)
     setTranscriptError(null)
     setCurrentVideoId(null)
     setCurrentTranscript(null)
     setCurrentPlaybackTime(0)
+    setIsLoading(false)
+    setLoadingMessage("")
 
     // If it's a new chat (no ID), we don't need to load anything
     if (!chatId) {

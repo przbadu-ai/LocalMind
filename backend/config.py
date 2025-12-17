@@ -9,8 +9,21 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _load_app_config() -> dict:
+    """Load app.config.json if it exists."""
+    config_path = Path(__file__).parent.parent / "app.config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            return json.load(f)
+    return {}
+
+
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables and .env file."""
+    """Application settings loaded from environment variables and .env file.
+
+    LLM settings should be configured via the Settings page in the app.
+    These will be stored in the database and override these defaults.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -18,22 +31,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # LLM Configuration
+    # LLM Configuration - configure via Settings page
     llm_provider: Literal["ollama", "openai", "llamacpp"] = Field(
         default="ollama",
         description="LLM provider to use",
     )
     llm_base_url: str = Field(
-        default="http://localhost:8080/v1",
-        description="Base URL for OpenAI-compatible API",
+        default="",
+        description="Base URL for OpenAI-compatible API (configure in Settings)",
     )
     llm_api_key: str = Field(
-        default="not-required",
+        default="",
         description="API key for LLM provider",
     )
     llm_model: str = Field(
-        default="gpt-oss:latest",
-        description="Default model to use",
+        default="",
+        description="Default model to use (configure in Settings)",
     )
 
     # Backend Server
@@ -61,7 +74,7 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         """Get CORS origins from app.config.json or defaults."""
         try:
-            config = self._load_app_config()
+            config = _load_app_config()
             return config.get("backend", {}).get("cors_origins", self._default_cors_origins)
         except Exception:
             return self._default_cors_origins
@@ -73,15 +86,6 @@ class Settings(BaseSettings):
             "tauri://localhost",
             f"http://{self.backend_host}:1420",
         ]
-
-    @staticmethod
-    def _load_app_config() -> dict:
-        """Load app.config.json if it exists."""
-        config_path = Path(__file__).parent.parent / "app.config.json"
-        if config_path.exists():
-            with open(config_path) as f:
-                return json.load(f)
-        return {}
 
 
 @lru_cache

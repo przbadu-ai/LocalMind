@@ -112,7 +112,7 @@ export default function Chats() {
                       <div className="flex-1 text-left">
                         <h3 className="font-medium text-foreground mb-1 mobile-check-title">{chat.title}</h3>
                         <p className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(chat.updated_at), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(chat.updated_at || chat.created_at), { addSuffix: true })}
                         </p>
                       </div>
                     </div>
