@@ -1,6 +1,11 @@
 import { createContext, useContext, useEffect, useState } from "react"
 import { invoke } from '@tauri-apps/api/core'
 
+// Helper to check if running in Tauri
+const isTauri = () => {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
 type Theme = "dark" | "light" | "system"
 
 type ThemeProviderProps = {
@@ -43,14 +48,19 @@ export function ThemeProvider({
         : "light"
 
       root.classList.add(systemTheme)
+      root.classList.add(systemTheme)
       // Sync theme with Tauri window
-      invoke('set_app_theme', { theme: systemTheme }).catch(console.error)
+      if (isTauri()) {
+        invoke('set_app_theme', { theme: systemTheme }).catch(console.error)
+      }
       return
     }
 
     root.classList.add(theme)
     // Sync theme with Tauri window
-    invoke('set_app_theme', { theme }).catch(console.error)
+    if (isTauri()) {
+      invoke('set_app_theme', { theme }).catch(console.error)
+    }
   }, [theme])
 
   const value = {

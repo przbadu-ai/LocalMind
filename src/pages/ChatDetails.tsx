@@ -70,16 +70,35 @@ export default function ChatDetail() {
   }
 
   // Set the header title based on chatId
+  // Reset state when chatId changes
   useEffect(() => {
-    if (chatId) {
-      const formattedTitle = chatId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-      setTitle(formattedTitle)
-    }
+    chatDataLoaded.current = false
+    setMessages([])
+    setCurrentChat(null)
+    setTranscriptError(null)
+    setCurrentVideoId(null)
+    setCurrentTranscript(null)
+    setCurrentPlaybackTime(0)
 
+    // If it's a new chat (no ID), we don't need to load anything
+    if (!chatId) {
+      chatDataLoaded.current = true
+    }
+  }, [chatId])
+
+  // Clear title on unmount or chatId change
+  useEffect(() => {
     return () => {
       clearTitle()
     }
-  }, [chatId, setTitle, clearTitle])
+  }, [chatId, clearTitle])
+
+  // Set initial loading state
+  useEffect(() => {
+    if (chatId && !currentChat) {
+      setTitle("Loading...")
+    }
+  }, [chatId, currentChat, setTitle])
 
   // Fetch transcript for a video
   const fetchTranscript = useCallback(async (videoId: string) => {
@@ -104,11 +123,16 @@ export default function ChatDetail() {
   // Load chat and messages from database
   useEffect(() => {
     const loadChatData = async () => {
-      if (!chatId || chatDataLoaded.current) return
+      // If no chatId, we're in "New Chat" mode, handled by state reset above
+      if (!chatId) return
+
+      // If we already loaded this chat ID (and haven't reset), skip
+      if (chatDataLoaded.current && conversationIdRef.current === chatId) return
 
       try {
         const chat = await chatService.getChat(chatId, true)
         setCurrentChat(chat)
+        setTitle(chat.title)
         conversationIdRef.current = chat.id
         chatDataLoaded.current = true
 
@@ -264,13 +288,13 @@ export default function ChatDetail() {
                       setMessages(prev => prev.map(msg =>
                         msg.id === userMessage.id
                           ? {
-                              ...msg,
-                              artifactType: 'youtube',
-                              artifactData: {
-                                video_id: data.video_id,
-                                url: data.url,
-                              }
+                            ...msg,
+                            artifactType: 'youtube',
+                            artifactData: {
+                              video_id: data.video_id,
+                              url: data.url,
                             }
+                          }
                           : msg
                       ))
                     } else if (data.type === 'transcript_status') {
@@ -280,12 +304,12 @@ export default function ChatDetail() {
                         setMessages(prev => prev.map(msg =>
                           msg.id === userMessage.id && msg.artifactData
                             ? {
-                                ...msg,
-                                artifactData: {
-                                  ...msg.artifactData,
-                                  transcript_available: true,
-                                }
+                              ...msg,
+                              artifactData: {
+                                ...msg.artifactData,
+                                transcript_available: true,
                               }
+                            }
                             : msg
                         ))
                       } else {
@@ -410,13 +434,12 @@ export default function ChatDetail() {
                     {messages.map((msg) => (
                       <div key={msg.id} className="space-y-3">
                         <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                            msg.type === 'user'
-                              ? 'bg-muted text-muted-foreground'
-                              : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
+                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
+                            ? 'bg-muted text-muted-foreground'
+                            : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
                               ? 'bg-destructive/10 border border-destructive/20 text-destructive'
                               : ''
-                          }`}>
+                            }`}>
                             {msg.type === 'assistant' && msg.content === '' && isLoading ? (
                               <div className="flex items-center gap-2">
                                 <Loader2 className="h-3 w-3 animate-spin" />
