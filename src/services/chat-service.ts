@@ -330,6 +330,4 @@ class ChatService {
 // Export singleton instance
 export const chatService = new ChatService();
 
-// Export types
-export type { Chat, Message, ChatWithMessages, CreateChatRequest, UpdateChatRequest };
 export default chatService;

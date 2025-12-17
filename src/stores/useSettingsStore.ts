@@ -47,7 +47,7 @@ const initialState = {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set, get) => ({
+    (set, _get) => ({
       ...initialState,
 
       // LLM actions

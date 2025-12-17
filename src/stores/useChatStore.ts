@@ -70,7 +70,7 @@ const initialState = {
 
 export const useChatStore = create<ChatState>()(
   persist(
-    (set, get) => ({
+    (set, _get) => ({
       ...initialState,
 
       // Current chat actions
