@@ -57,9 +57,15 @@ export function AppSidebar() {
 
     loadRecentChats()
 
+    // Listen for chat updates
+    window.addEventListener('chats-updated', loadRecentChats)
+
     // Reload chats when navigating to a new chat
     const intervalId = setInterval(loadRecentChats, 30000) // Refresh every 30 seconds
-    return () => clearInterval(intervalId)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('chats-updated', loadRecentChats)
+    }
   }, [])
 
   const handleNewChat = () => {

@@ -16,8 +16,8 @@ class ChatRepository:
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO chats (id, title, created_at, updated_at, is_archived)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO chats (id, title, created_at, updated_at, is_archived, is_pinned)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chat.id,
@@ -25,6 +25,7 @@ class ChatRepository:
                     chat.created_at.isoformat(),
                     chat.updated_at.isoformat(),
                     int(chat.is_archived),
+                    int(chat.is_pinned),
                 ),
             )
             conn.commit()
@@ -56,7 +57,7 @@ class ChatRepository:
             if not include_archived:
                 query += " WHERE is_archived = 0"
 
-            query += " ORDER BY updated_at DESC LIMIT ?"
+            query += " ORDER BY created_at DESC LIMIT ?"
             params.append(limit)
 
             rows = conn.execute(query, params).fetchall()
@@ -83,13 +84,14 @@ class ChatRepository:
             conn.execute(
                 """
                 UPDATE chats
-                SET title = ?, updated_at = ?, is_archived = ?
+                SET title = ?, updated_at = ?, is_archived = ?, is_pinned = ?
                 WHERE id = ?
                 """,
                 (
                     chat.title,
                     chat.updated_at.isoformat(),
                     int(chat.is_archived),
+                    int(chat.is_pinned),
                     chat.id,
                 ),
             )
@@ -148,6 +150,34 @@ class ChatRepository:
             conn.commit()
             return cursor.rowcount > 0
 
+    def pin(self, chat_id: str) -> bool:
+        """Pin a chat."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE chats
+                SET is_pinned = 1, updated_at = ?
+                WHERE id = ?
+                """,
+                (datetime.utcnow().isoformat(), chat_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def unpin(self, chat_id: str) -> bool:
+        """Unpin a chat."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE chats
+                SET is_pinned = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (datetime.utcnow().isoformat(), chat_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     def touch(self, chat_id: str) -> bool:
         """Update the updated_at timestamp."""
         with get_db() as conn:
@@ -170,4 +200,5 @@ class ChatRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             is_archived=bool(row["is_archived"]),
+            is_pinned=bool(row["is_pinned"]) if "is_pinned" in row.keys() else False,
         )

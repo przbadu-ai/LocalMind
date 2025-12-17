@@ -20,6 +20,7 @@ class Chat(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_archived: bool = False
+    is_pinned: bool = False
     tags: list["ChatTag"] = Field(default_factory=list)
 
 

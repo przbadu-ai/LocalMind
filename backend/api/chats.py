@@ -26,6 +26,7 @@ class UpdateChatRequest(BaseModel):
 
     title: Optional[str] = None
     is_archived: Optional[bool] = None
+    is_pinned: Optional[bool] = None
 
 
 class ChatResponse(BaseModel):
@@ -36,6 +37,7 @@ class ChatResponse(BaseModel):
     created_at: str
     updated_at: str
     is_archived: bool
+    is_pinned: bool
     message_count: int
 
 
@@ -72,6 +74,7 @@ async def get_recent_chats(
             created_at=chat.created_at.isoformat(),
             updated_at=chat.updated_at.isoformat(),
             is_archived=chat.is_archived,
+            is_pinned=chat.is_pinned,
             message_count=message_repo.count_by_chat_id(chat.id),
         )
         for chat in chats
@@ -93,6 +96,7 @@ async def search_chats(
             created_at=chat.created_at.isoformat(),
             updated_at=chat.updated_at.isoformat(),
             is_archived=chat.is_archived,
+            is_pinned=chat.is_pinned,
             message_count=message_repo.count_by_chat_id(chat.id),
         )
         for chat in chats
@@ -111,6 +115,7 @@ async def create_chat(request: CreateChatRequest) -> ChatResponse:
         created_at=chat.created_at.isoformat(),
         updated_at=chat.updated_at.isoformat(),
         is_archived=chat.is_archived,
+        is_pinned=chat.is_pinned,
         message_count=0,
     )
 
@@ -147,6 +152,7 @@ async def get_chat(
         created_at=chat.created_at.isoformat(),
         updated_at=chat.updated_at.isoformat(),
         is_archived=chat.is_archived,
+        is_pinned=chat.is_pinned,
         message_count=len(messages),
         messages=messages,
     )
@@ -163,6 +169,8 @@ async def update_chat(chat_id: str, request: UpdateChatRequest) -> ChatResponse:
         chat.title = request.title
     if request.is_archived is not None:
         chat.is_archived = request.is_archived
+    if request.is_pinned is not None:
+        chat.is_pinned = request.is_pinned
 
     chat = chat_repo.update(chat)
 
@@ -172,6 +180,7 @@ async def update_chat(chat_id: str, request: UpdateChatRequest) -> ChatResponse:
         created_at=chat.created_at.isoformat(),
         updated_at=chat.updated_at.isoformat(),
         is_archived=chat.is_archived,
+        is_pinned=chat.is_pinned,
         message_count=message_repo.count_by_chat_id(chat.id),
     )
 
@@ -227,3 +236,21 @@ async def unarchive_chat(chat_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     return {"success": True, "message": "Chat unarchived"}
+
+
+@router.post("/chats/{chat_id}/pin")
+async def pin_chat(chat_id: str) -> dict:
+    """Pin a chat."""
+    if not chat_repo.pin(chat_id):
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    return {"success": True, "message": "Chat pinned"}
+
+
+@router.delete("/chats/{chat_id}/pin")
+async def unpin_chat(chat_id: str) -> dict:
+    """Unpin a chat."""
+    if not chat_repo.unpin(chat_id):
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    return {"success": True, "message": "Chat unpinned"}

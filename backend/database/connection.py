@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS chats (
     title TEXT NOT NULL DEFAULT 'New Chat',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_archived INTEGER DEFAULT 0
+    is_archived INTEGER DEFAULT 0,
+    is_pinned INTEGER DEFAULT 0
 );
 
 -- Chat tags
@@ -96,8 +97,22 @@ def init_db() -> None:
     db_path = get_db_path()
     conn = sqlite3.connect(str(db_path))
     conn.executescript(SCHEMA)
+    
+    # Run migrations
+    _migrate_db(conn)
+    
     conn.commit()
     conn.close()
+
+
+def _migrate_db(conn: sqlite3.Connection) -> None:
+    """Run database migrations."""
+    # Check if is_pinned column exists in chats table
+    cursor = conn.execute("PRAGMA table_info(chats)")
+    columns = [row[1] for row in cursor.fetchall()]
+    
+    if "is_pinned" not in columns:
+        conn.execute("ALTER TABLE chats ADD COLUMN is_pinned INTEGER DEFAULT 0")
 
 
 @contextmanager
