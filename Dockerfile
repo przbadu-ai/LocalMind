@@ -21,7 +21,7 @@ COPY public/ ./public/
 COPY index.html ./
 COPY vite.config.ts ./
 COPY tsconfig*.json ./
-COPY tailwind.config.js ./
+COPY tailwind.config.ts ./
 COPY postcss.config.js ./
 COPY components.json ./
 
@@ -43,8 +43,8 @@ RUN echo '{ \
   "features": { "enable_youtube": true, "enable_mcp": true, "enable_offline_mode": true } \
 }' > app.config.json
 
-# Build the frontend (web mode, not Tauri)
-RUN bun run build
+# Build the frontend only (web mode, not Tauri)
+RUN bun run build:frontend
 
 # Production stage
 FROM nginx:alpine

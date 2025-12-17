@@ -14,7 +14,7 @@ export function YouTubePlayer({
   className = "",
 }: YouTubePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [isReady, setIsReady] = useState(false)
+  const [, setIsReady] = useState(false)
 
   // Generate embed URL with parameters
   const embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0&modestbranding=1${startTime > 0 ? `&start=${Math.floor(startTime)}` : ""}`
