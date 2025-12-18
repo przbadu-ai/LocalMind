@@ -2,14 +2,10 @@ import {
   MessageSquare,
   Plus,
   Settings,
-  Minus,
-  Square,
-  X,
   Pin,
   Archive
 } from "lucide-react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useState, useEffect } from "react"
 import { chatService, type Chat } from "@/services/chat-service"
 
@@ -24,7 +20,6 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
-  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 
@@ -73,73 +68,9 @@ export function AppSidebar() {
     navigate('/')
   }
 
-  const handleMinimize = async () => {
-    try {
-      const appWindow = getCurrentWebviewWindow();
-      await appWindow.minimize();
-    } catch (err) {
-      console.error('Failed to minimize:', err);
-    }
-  };
-
-  const handleMaximize = async () => {
-    try {
-      const appWindow = getCurrentWebviewWindow();
-      await appWindow.toggleMaximize();
-    } catch (err) {
-      console.error('Failed to maximize:', err);
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      const appWindow = getCurrentWebviewWindow();
-      await appWindow.close();
-    } catch (err) {
-      console.error('Failed to close:', err);
-    }
-  };
-
   return (
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="p-0">
-        {/* Window controls and drag region */}
-        {/* <div
-          data-tauri-drag-region
-          className="flex items-center justify-between h-[55px] px-3"
-        >
-          <div
-            className="flex items-center gap-1"
-            style={{ position: 'fixed', top: 20, left: 10, width: '250px', zIndex: 10 }}
-          >
-            <button
-              onClick={handleClose}
-              className="p-1.5 rounded hover:bg-red-500 hover:text-white transition-colors"
-              aria-label="Close"
-            >
-              <X className="h-3 w-3" />
-            </button>
-            <button
-              onClick={handleMinimize}
-              className="p-1.5 rounded hover:bg-sidebar-accent transition-colors"
-              aria-label="Minimize"
-            >
-              <Minus className="h-3 w-3" />
-            </button>
-            <button
-              onClick={handleMaximize}
-              className="p-1.5 rounded hover:bg-sidebar-accent transition-colors"
-              aria-label="Maximize"
-            >
-              <Square className="h-3 w-3" />
-            </button>
-            <div className="bg-sidebar-accent ml-2">
-              <SidebarTrigger className="h-8 w-8" />
-            </div>
-          </div>
-        </div> */}
-
-        {/* New chat button */}
         <div className="p-4">
           <Button
             variant="outline"
