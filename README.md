@@ -333,6 +333,52 @@ volumes:
   ollama-data:
 ```
 
+### Kamal Deployment (Production)
+
+For production deployments to a server, LXC container, or VPS, Local Mind supports [Kamal](https://kamal-deploy.org/) - a deployment tool from 37signals.
+
+#### Quick Start
+
+```bash
+# Install Kamal
+gem install kamal
+
+# Configure your deployment
+cp .env.example .env
+cp .kamal/secrets.example .kamal/secrets
+# Edit .env with your server IP, registry credentials, etc.
+
+# First-time deployment
+kamal setup
+
+# Subsequent deployments
+kamal deploy
+```
+
+The app will be available at `http://your-server-ip:3000`
+
+#### Requirements
+
+- **Local**: Ruby, Docker, SSH key access to server
+- **Server**: Docker installed, SSH access
+- **Registry**: GitHub account for ghcr.io (free for public repos)
+
+#### Key Commands
+
+```bash
+kamal setup          # First deployment
+kamal deploy         # Deploy updates
+kamal app logs       # View frontend logs
+kamal accessory logs backend  # View backend logs
+kamal rollback       # Rollback to previous version
+```
+
+See [docs/deployment.md](docs/deployment.md) for detailed instructions including:
+- GitHub Container Registry setup
+- Server configuration
+- SSL/domain setup
+- Troubleshooting guide
+
 ## Troubleshooting
 
 ### LLM Connection Issues

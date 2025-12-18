@@ -1,5 +1,6 @@
 # Frontend Dockerfile for Local Mind
 # React frontend served via nginx
+# Supports both Docker Compose and Kamal deployments
 
 # Build stage
 FROM node:20-slim AS builder
@@ -49,17 +50,26 @@ RUN bun run build:frontend
 # Production stage
 FROM nginx:alpine
 
-# Copy custom nginx config
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx config template and entrypoint script
+COPY docker/nginx.conf.template /etc/nginx/templates/nginx.conf.template
+COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Environment variables for backend configuration
+# These can be overridden at runtime
+ENV BACKEND_HOST=localmind-backend
+ENV BACKEND_PORT=52817
+
 # Expose port
 EXPOSE 80
 
-# Health check
+# Health check - uses the /up endpoint for Kamal compatibility
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:80/up || exit 1
 
+# Use custom entrypoint to substitute env vars in nginx config
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

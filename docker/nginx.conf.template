@@ -1,10 +1,9 @@
 # Nginx configuration for LocalMind frontend
-# Works with both Docker Compose and Kamal deployments
+# This is a template file - use envsubst to substitute variables
 #
-# Backend hostname is configured via BACKEND_HOST environment variable:
-# - Docker Compose: backend
-# - Kamal: localmind-backend
-# Default: localmind-backend
+# Variables:
+#   BACKEND_HOST: Backend hostname (default: localmind-backend)
+#   BACKEND_PORT: Backend port (default: 52817)
 
 server {
     listen 80;
@@ -30,7 +29,7 @@ server {
     # Proxy API requests to backend
     # Uses variable to force DNS resolution at runtime
     location /api/ {
-        set $backend "localmind-backend:52817";
+        set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
         proxy_pass http://$backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -57,7 +56,7 @@ server {
 
     # Backend health check proxy
     location /health {
-        set $backend "localmind-backend:52817";
+        set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
         proxy_pass http://$backend/health;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
