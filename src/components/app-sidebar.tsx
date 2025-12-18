@@ -104,7 +104,7 @@ export function AppSidebar() {
     <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="p-0">
         {/* Window controls and drag region */}
-        <div
+        {/* <div
           data-tauri-drag-region
           className="flex items-center justify-between h-[55px] px-3"
         >
@@ -137,7 +137,7 @@ export function AppSidebar() {
               <SidebarTrigger className="h-8 w-8" />
             </div>
           </div>
-        </div>
+        </div> */}
 
         {/* New chat button */}
         <div className="p-4">
