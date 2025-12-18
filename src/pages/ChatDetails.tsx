@@ -92,6 +92,12 @@ export default function ChatDetail() {
 
   // Reset state when chatId changes
   useEffect(() => {
+    // If we're just navigating to the ID of the chat we just created, don't reset!
+    if (chatId && conversationIdRef.current === chatId && messages.length > 0) {
+      chatDataLoaded.current = true
+      return
+    }
+
     chatDataLoaded.current = false
     hasProcessedInitialMessage.current = false
     conversationIdRef.current = chatId || ""
@@ -160,6 +166,13 @@ export default function ChatDetail() {
         conversationIdRef.current = chat.id
         chatDataLoaded.current = true
 
+        // If we have an initial message from navigation (New Chat flow),
+        // don't overwrite the messages state as sendMessage() is handling it optimistically.
+        // The server won't have the messages yet.
+        if (location.state?.initialMessage) {
+          return
+        }
+
         const loadedMessages: ChatMessage[] = chat.messages.map(msg => ({
           id: msg.id,
           type: msg.role as 'user' | 'assistant',
@@ -225,6 +238,9 @@ export default function ChatDetail() {
         conversationIdRef.current = newChat.id
         setCurrentChat(newChat)
         setTitle(newChat.title)
+
+        // Notify sidebar to refresh chat list
+        window.dispatchEvent(new Event('chats-updated'))
       } catch (error) {
         console.error('Failed to create chat:', error)
       }
@@ -307,21 +323,31 @@ export default function ChatDetail() {
                       ))
                       requestAnimationFrame(scrollToBottom)
                     } else if (data.type === 'youtube_detected') {
+                      console.log('[Debug] YouTube detected event:', data)
                       setCurrentVideoId(data.video_id)
                       setLoadingMessage("Fetching video transcript...")
-                      // Update user message with artifact data
-                      setMessages(prev => prev.map(msg =>
-                        msg.id === userMessage.id
-                          ? {
-                            ...msg,
-                            artifactType: 'youtube',
-                            artifactData: {
-                              video_id: data.video_id,
-                              url: data.url,
+                      // Update user message with artifact data - find by the stored userMessage.id
+                      const targetUserMessageId = userMessage.id
+                      setMessages(prev => {
+                        console.log('[Debug] Updating messages for YouTube. Target ID:', targetUserMessageId, 'Messages:', prev.map(m => ({ id: m.id, type: m.type })))
+                        const updated = prev.map(msg => {
+                          if (msg.id === targetUserMessageId) {
+                            console.log('[Debug] Found and updating user message:', msg.id)
+                            return {
+                              ...msg,
+                              artifactType: 'youtube' as const,
+                              artifactData: {
+                                video_id: data.video_id,
+                                url: data.url,
+                                transcript_available: false,
+                              }
                             }
                           }
-                          : msg
-                      ))
+                          return msg
+                        })
+                        console.log('[Debug] Updated messages:', updated.map(m => ({ id: m.id, type: m.type, artifactType: m.artifactType })))
+                        return updated
+                      })
                     } else if (data.type === 'transcript_status') {
                       if (data.success) {
                         // Fetch transcript immediately when it's ready
@@ -354,6 +380,7 @@ export default function ChatDetail() {
                       if (data.title) {
                         setTitle(data.title)
                         setCurrentChat(prev => prev ? { ...prev, title: data.title } : prev)
+                        window.dispatchEvent(new Event('chats-updated'))
                       }
                     } else if (data.type === 'error') {
                       if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {

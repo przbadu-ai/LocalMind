@@ -3,7 +3,10 @@ import {
   Plus,
   Settings,
   Pin,
-  Archive
+  Archive,
+  MoreHorizontal,
+  Edit,
+  Trash2,
 } from "lucide-react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { useState, useEffect } from "react"
@@ -22,6 +25,21 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 
 const navigationItems = [
   { title: "Chats", url: "/chats", icon: MessageSquare },
@@ -33,6 +51,9 @@ export function AppSidebar() {
   const currentPath = location.pathname
   const [recentChats, setRecentChats] = useState<Chat[]>([])
   const [isLoadingChats, setIsLoadingChats] = useState(true)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [renameId, setRenameId] = useState<string | null>(null)
+  const [newTitle, setNewTitle] = useState("")
 
   const isActive = (path: string) => currentPath === path
 
@@ -66,6 +87,45 @@ export function AppSidebar() {
   const handleNewChat = () => {
     // Navigate to home page which has the chat interface for new chats
     navigate('/')
+  }
+
+  const openRenameDialog = (chat: Chat) => {
+    setRenameId(chat.id)
+    setNewTitle(chat.title)
+  }
+
+  const handleRename = async () => {
+    if (!renameId || !newTitle.trim()) return
+
+    try {
+      const updated = await chatService.updateChat(renameId, { title: newTitle.trim() })
+      setRecentChats(prev => prev.map(chat => chat.id === renameId ? updated : chat))
+      window.dispatchEvent(new Event('chats-updated'))
+    } catch (error) {
+      console.error('Failed to rename chat:', error)
+    } finally {
+      setRenameId(null)
+      setNewTitle("")
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteId) return
+
+    try {
+      await chatService.deleteChat(deleteId)
+      setRecentChats(prev => prev.filter(chat => chat.id !== deleteId))
+      window.dispatchEvent(new Event('chats-updated'))
+
+      // If we're viewing the deleted chat, navigate to home
+      if (currentPath === `/chats/${deleteId}`) {
+        navigate('/')
+      }
+    } catch (error) {
+      console.error('Failed to delete chat:', error)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   return (
@@ -123,18 +183,44 @@ export function AppSidebar() {
                 </div>
               ) : (
                 recentChats.map((chat) => (
-                  <SidebarMenuItem key={chat.id}>
-                    <SidebarMenuButton
-                      asChild
-                      className="h-8 text-sm hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
-                    >
-                      <NavLink to={`/chats/${chat.id}`} className="flex items-center gap-2">
-                        {chat.is_pinned && <Pin className="h-3 w-3 flex-shrink-0" />}
-                        {chat.is_archived && <Archive className="h-3 w-3 flex-shrink-0" />}
-                        <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                        <span className="truncate">{chat.title}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
+                  <SidebarMenuItem key={chat.id} className="group/item">
+                    <div className="flex items-center w-full">
+                      <SidebarMenuButton
+                        asChild
+                        className="h-8 text-sm hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground flex-1 pr-1"
+                      >
+                        <NavLink to={`/chats/${chat.id}`} className="flex items-center gap-2">
+                          {chat.is_pinned && <Pin className="h-3 w-3 flex-shrink-0" />}
+                          {chat.is_archived && <Archive className="h-3 w-3 flex-shrink-0" />}
+                          <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{chat.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => openRenameDialog(chat)}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setDeleteId(chat.id)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </SidebarMenuItem>
                 ))
               )}
@@ -161,6 +247,43 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      {/* Delete Dialog */}
+      <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Chat</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this chat? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Dialog */}
+      <Dialog open={!!renameId} onOpenChange={(open) => !open && setRenameId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Chat</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Chat title"
+              onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameId(null)}>Cancel</Button>
+            <Button onClick={handleRename}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   )
 }

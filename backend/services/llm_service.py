@@ -13,6 +13,24 @@ class ChatMessage(BaseModel):
     content: str
 
 
+# Special tokens that should be filtered from LLM output
+SPECIAL_TOKENS = [
+    "<|im_start|>",
+    "<|im_end|>",
+    "<|endoftext|>",
+    "<|assistant|>",
+    "<|user|>",
+    "<|system|>",
+]
+
+
+def clean_llm_output(text: str) -> str:
+    """Remove special tokens from LLM output."""
+    for token in SPECIAL_TOKENS:
+        text = text.replace(token, "")
+    return text
+
+
 def _get_llm_config_from_db() -> dict:
     """Get LLM configuration from the database."""
     try:
@@ -93,7 +111,8 @@ class LLMService:
             max_tokens=max_tokens,
         )
 
-        return response.choices[0].message.content or ""
+        content = response.choices[0].message.content or ""
+        return clean_llm_output(content)
 
     def chat_stream(
         self,
@@ -119,7 +138,9 @@ class LLMService:
 
         for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                content = clean_llm_output(chunk.choices[0].delta.content)
+                if content:  # Only yield non-empty content
+                    yield content
 
     def is_available(self) -> bool:
         """Check if the LLM endpoint is available."""
