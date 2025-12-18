@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from database.connection import get_db
-from database.models import Configuration, MCPServer
+from database.models import Configuration, MCPServer, LLMProvider
 
 
 class ConfigRepository:
@@ -235,6 +235,137 @@ class ConfigRepository:
             url=row["url"],
             env=json.loads(row["env"]) if row["env"] else None,
             enabled=bool(row["enabled"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    # LLM Provider methods
+
+    def create_llm_provider(self, provider: LLMProvider) -> LLMProvider:
+        """Create a new LLM provider."""
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO llm_providers (id, name, base_url, api_key, model, is_default, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider.id,
+                    provider.name,
+                    provider.base_url,
+                    provider.api_key,
+                    provider.model,
+                    int(provider.is_default),
+                    provider.created_at.isoformat(),
+                    provider.updated_at.isoformat(),
+                ),
+            )
+            conn.commit()
+        return provider
+
+    def get_llm_provider(self, name: str) -> Optional[LLMProvider]:
+        """Get an LLM provider by name."""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM llm_providers WHERE name = ?",
+                (name,),
+            ).fetchone()
+
+            if not row:
+                return None
+
+            return self._row_to_llm_provider(row)
+
+    def get_all_llm_providers(self) -> list[LLMProvider]:
+        """Get all LLM providers."""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM llm_providers ORDER BY name"
+            ).fetchall()
+            return [self._row_to_llm_provider(row) for row in rows]
+
+    def get_default_llm_provider(self) -> Optional[LLMProvider]:
+        """Get the default LLM provider."""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM llm_providers WHERE is_default = 1"
+            ).fetchone()
+
+            if not row:
+                return None
+
+            return self._row_to_llm_provider(row)
+
+    def update_llm_provider(self, provider: LLMProvider) -> LLMProvider:
+        """Update an LLM provider."""
+        provider.updated_at = datetime.utcnow()
+
+        with get_db() as conn:
+            conn.execute(
+                """
+                UPDATE llm_providers
+                SET base_url = ?, api_key = ?, model = ?, is_default = ?, updated_at = ?
+                WHERE name = ?
+                """,
+                (
+                    provider.base_url,
+                    provider.api_key,
+                    provider.model,
+                    int(provider.is_default),
+                    provider.updated_at.isoformat(),
+                    provider.name,
+                ),
+            )
+            conn.commit()
+        return provider
+
+    def upsert_llm_provider(self, provider: LLMProvider) -> LLMProvider:
+        """Create or update an LLM provider."""
+        existing = self.get_llm_provider(provider.name)
+        if existing:
+            # Preserve id from existing record
+            provider.id = existing.id
+            provider.created_at = existing.created_at
+            return self.update_llm_provider(provider)
+        return self.create_llm_provider(provider)
+
+    def set_default_llm_provider(self, name: str) -> bool:
+        """Set a provider as the default (unsets others)."""
+        with get_db() as conn:
+            # First, unset all defaults
+            conn.execute("UPDATE llm_providers SET is_default = 0")
+
+            # Set the new default
+            cursor = conn.execute(
+                """
+                UPDATE llm_providers
+                SET is_default = 1, updated_at = ?
+                WHERE name = ?
+                """,
+                (datetime.utcnow().isoformat(), name),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_llm_provider(self, name: str) -> bool:
+        """Delete an LLM provider."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM llm_providers WHERE name = ?",
+                (name,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def _row_to_llm_provider(self, row) -> LLMProvider:
+        """Convert a database row to an LLMProvider model."""
+        return LLMProvider(
+            id=row["id"],
+            name=row["name"],
+            base_url=row["base_url"],
+            api_key=row["api_key"],
+            model=row["model"],
+            is_default=bool(row["is_default"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

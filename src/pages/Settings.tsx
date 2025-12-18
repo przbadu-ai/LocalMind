@@ -46,6 +46,15 @@ interface LLMSettings {
   api_key: string
   model: string
   available: boolean
+  is_default?: boolean
+}
+
+interface SavedProvider {
+  name: string
+  base_url: string
+  api_key: string  // Masked from API
+  model: string
+  is_default: boolean
 }
 
 // Provider configurations with default URLs
@@ -111,7 +120,10 @@ export default function Settings() {
   const [llmTesting, setLlmTesting] = useState(false)
   const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [savedProviders, setSavedProviders] = useState<SavedProvider[]>([])
+  const [defaultProvider, setDefaultProvider] = useState<string | null>(null)
 
   // MCP Servers state
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([])
@@ -143,6 +155,7 @@ export default function Settings() {
   useEffect(() => {
     setTitle("Settings")
     loadLLMSettings()
+    loadSavedProviders()
     loadMCPServers()
   }, [setTitle])
 
@@ -168,16 +181,45 @@ export default function Settings() {
     }
   }
 
+  // Load saved providers
+  const loadSavedProviders = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/settings/llm/providers`)
+      if (response.ok) {
+        const data = await response.json()
+        setSavedProviders(data.providers || [])
+        setDefaultProvider(data.default_provider)
+      }
+    } catch (error) {
+      console.error("Failed to load saved providers:", error)
+    }
+  }
+
   // Load available models
   const loadAvailableModels = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/settings/llm/models`)
+      setModelsLoading(true)
+      // Use the new POST endpoint that accepts current settings
+      const response = await fetch(`${API_BASE_URL}/api/v1/settings/llm/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_url: editedLlm.base_url || undefined,
+          api_key: editedLlm.api_key || undefined,
+          provider: editedLlm.provider || undefined,
+        }),
+      })
+
       if (response.ok) {
         const data = await response.json()
-        setAvailableModels(data.models || [])
+        if (data.models && Array.isArray(data.models)) {
+          setAvailableModels(data.models)
+        }
       }
     } catch (error) {
       console.error("Failed to load models:", error)
+    } finally {
+      setModelsLoading(false)
     }
   }
 
@@ -199,6 +241,7 @@ export default function Settings() {
 
       if (response.ok) {
         await loadLLMSettings()
+        await loadSavedProviders()
         setLlmTestResult({ success: true, message: "Settings saved successfully" })
       } else {
         setLlmTestResult({ success: false, message: "Failed to save settings" })
@@ -505,26 +548,62 @@ export default function Settings() {
                           <Select
                             value={editedLlm.provider}
                             onValueChange={(value) => {
+                              // Check if we have saved settings for this provider
+                              const savedProvider = savedProviders.find(p => p.name === value)
                               const config = PROVIDER_CONFIGS[value]
-                              setEditedLlm(prev => ({
-                                ...prev,
-                                provider: value,
-                                base_url: config?.url || prev.base_url,
-                                model: config?.placeholder || prev.model,
-                              }))
+
+                              if (savedProvider) {
+                                // Use saved settings (but clear api_key since it's masked)
+                                setEditedLlm({
+                                  provider: value,
+                                  base_url: savedProvider.base_url,
+                                  api_key: "",  // Clear - user can re-enter if needed
+                                  model: savedProvider.model,
+                                })
+                              } else {
+                                // Use defaults from PROVIDER_CONFIGS
+                                setEditedLlm(prev => ({
+                                  ...prev,
+                                  provider: value,
+                                  base_url: config?.url || prev.base_url,
+                                  api_key: "",
+                                  model: config?.placeholder || "",
+                                }))
+                              }
+                              // Clear models list when switching providers
+                              setAvailableModels([])
+                              setLlmTestResult(null)
                             }}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select provider" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="ollama">Ollama</SelectItem>
-                              <SelectItem value="openai">OpenAI</SelectItem>
-                              <SelectItem value="gemini">Google Gemini</SelectItem>
-                              <SelectItem value="cerebras">Cerebras</SelectItem>
-                              <SelectItem value="claude">Claude (Anthropic)</SelectItem>
-                              <SelectItem value="mistral">Mistral AI</SelectItem>
-                              <SelectItem value="openai_compatible">OpenAI Compatible</SelectItem>
+                              {[
+                                { value: "ollama", label: "Ollama" },
+                                { value: "openai", label: "OpenAI" },
+                                { value: "gemini", label: "Google Gemini" },
+                                { value: "cerebras", label: "Cerebras" },
+                                { value: "claude", label: "Claude (Anthropic)" },
+                                { value: "mistral", label: "Mistral AI" },
+                                { value: "openai_compatible", label: "OpenAI Compatible" },
+                              ].map(({ value, label }) => {
+                                const isSaved = savedProviders.some(p => p.name === value)
+                                const isDefault = defaultProvider === value
+                                return (
+                                  <SelectItem key={value} value={value}>
+                                    <span className="flex items-center gap-2">
+                                      {label}
+                                      {isSaved && (
+                                        <span className="text-xs text-muted-foreground">(saved)</span>
+                                      )}
+                                      {isDefault && (
+                                        <Badge variant="secondary" className="text-xs py-0 px-1">default</Badge>
+                                      )}
+                                    </span>
+                                  </SelectItem>
+                                )
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
@@ -591,8 +670,13 @@ export default function Settings() {
                               size="icon"
                               onClick={loadAvailableModels}
                               title="Refresh models"
+                              disabled={modelsLoading}
                             >
-                              <RefreshCw className="h-4 w-4" />
+                              {modelsLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
                             </Button>
                           </div>
                           {availableModels.length > 0 && (
@@ -604,9 +688,8 @@ export default function Settings() {
                       </div>
 
                       {llmTestResult && (
-                        <div className={`flex items-center gap-2 p-3 rounded-lg ${
-                          llmTestResult.success ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
-                        }`}>
+                        <div className={`flex items-center gap-2 p-3 rounded-lg ${llmTestResult.success ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"
+                          }`}>
                           {llmTestResult.success ? (
                             <CheckCircle2 className="h-4 w-4" />
                           ) : (
@@ -618,25 +701,37 @@ export default function Settings() {
 
                       <Separator />
 
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={testLLMConnection}
-                          disabled={llmTesting}
-                        >
-                          {llmTesting ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-muted-foreground">
+                          {defaultProvider === editedLlm.provider ? (
+                            <span className="flex items-center gap-1">
+                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              This is your default provider
+                            </span>
                           ) : (
-                            <RefreshCw className="h-4 w-4 mr-2" />
+                            <span>Saving will set this as your default provider</span>
                           )}
-                          Test Connection
-                        </Button>
-                        <Button onClick={saveLLMSettings} disabled={llmSaving}>
-                          {llmSaving ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : null}
-                          Save Settings
-                        </Button>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={testLLMConnection}
+                            disabled={llmTesting}
+                          >
+                            {llmTesting ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                            )}
+                            Test Connection
+                          </Button>
+                          <Button onClick={saveLLMSettings} disabled={llmSaving}>
+                            {llmSaving ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : null}
+                            Save Settings
+                          </Button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -715,92 +810,92 @@ export default function Settings() {
                             Add Server
                           </Button>
                         </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Add MCP Server</DialogTitle>
-                          <DialogDescription>
-                            Configure a new Model Context Protocol server
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label htmlFor="server-name">Name</Label>
-                            <Input
-                              id="server-name"
-                              value={newServer.name}
-                              onChange={(e) => setNewServer(prev => ({ ...prev, name: e.target.value }))}
-                              placeholder="My MCP Server"
-                            />
-                          </div>
-
-                          <div className="grid gap-2">
-                            <Label htmlFor="transport-type">Transport Type</Label>
-                            <Select
-                              value={newServer.transport_type}
-                              onValueChange={(value: "stdio" | "sse") => setNewServer(prev => ({ ...prev, transport_type: value }))}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="stdio">stdio (Local process)</SelectItem>
-                                <SelectItem value="sse">SSE (Remote server)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {newServer.transport_type === "stdio" ? (
-                            <>
-                              <div className="grid gap-2">
-                                <Label htmlFor="command">Command</Label>
-                                <Input
-                                  id="command"
-                                  value={newServer.command}
-                                  onChange={(e) => setNewServer(prev => ({ ...prev, command: e.target.value }))}
-                                  placeholder="npx"
-                                />
-                              </div>
-                              <div className="grid gap-2">
-                                <Label htmlFor="args">Arguments (space-separated)</Label>
-                                <Input
-                                  id="args"
-                                  value={newServer.args}
-                                  onChange={(e) => setNewServer(prev => ({ ...prev, args: e.target.value }))}
-                                  placeholder="@modelcontextprotocol/server-filesystem"
-                                />
-                              </div>
-                            </>
-                          ) : (
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Add MCP Server</DialogTitle>
+                            <DialogDescription>
+                              Configure a new Model Context Protocol server
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
-                              <Label htmlFor="url">Server URL</Label>
+                              <Label htmlFor="server-name">Name</Label>
                               <Input
-                                id="url"
-                                value={newServer.url}
-                                onChange={(e) => setNewServer(prev => ({ ...prev, url: e.target.value }))}
-                                placeholder="http://localhost:3000/sse"
+                                id="server-name"
+                                value={newServer.name}
+                                onChange={(e) => setNewServer(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="My MCP Server"
                               />
                             </div>
-                          )}
 
-                          <div className="flex items-center space-x-2">
-                            <Switch
-                              id="enabled"
-                              checked={newServer.enabled}
-                              onCheckedChange={(checked) => setNewServer(prev => ({ ...prev, enabled: checked }))}
-                            />
-                            <Label htmlFor="enabled">Enable on startup</Label>
+                            <div className="grid gap-2">
+                              <Label htmlFor="transport-type">Transport Type</Label>
+                              <Select
+                                value={newServer.transport_type}
+                                onValueChange={(value: "stdio" | "sse") => setNewServer(prev => ({ ...prev, transport_type: value }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="stdio">stdio (Local process)</SelectItem>
+                                  <SelectItem value="sse">SSE (Remote server)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {newServer.transport_type === "stdio" ? (
+                              <>
+                                <div className="grid gap-2">
+                                  <Label htmlFor="command">Command</Label>
+                                  <Input
+                                    id="command"
+                                    value={newServer.command}
+                                    onChange={(e) => setNewServer(prev => ({ ...prev, command: e.target.value }))}
+                                    placeholder="npx"
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label htmlFor="args">Arguments (space-separated)</Label>
+                                  <Input
+                                    id="args"
+                                    value={newServer.args}
+                                    onChange={(e) => setNewServer(prev => ({ ...prev, args: e.target.value }))}
+                                    placeholder="@modelcontextprotocol/server-filesystem"
+                                  />
+                                </div>
+                              </>
+                            ) : (
+                              <div className="grid gap-2">
+                                <Label htmlFor="url">Server URL</Label>
+                                <Input
+                                  id="url"
+                                  value={newServer.url}
+                                  onChange={(e) => setNewServer(prev => ({ ...prev, url: e.target.value }))}
+                                  placeholder="http://localhost:3000/sse"
+                                />
+                              </div>
+                            )}
+
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                id="enabled"
+                                checked={newServer.enabled}
+                                onCheckedChange={(checked) => setNewServer(prev => ({ ...prev, enabled: checked }))}
+                              />
+                              <Label htmlFor="enabled">Enable on startup</Label>
+                            </div>
                           </div>
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setShowAddServer(false)}>
-                            Cancel
-                          </Button>
-                          <Button onClick={addMCPServer} disabled={!newServer.name}>
-                            Add Server
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAddServer(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={addMCPServer} disabled={!newServer.name}>
+                              Add Server
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </CardTitle>
                   <CardDescription>
@@ -917,11 +1012,10 @@ export default function Settings() {
                           className="flex items-center justify-between p-4 rounded-lg border bg-card"
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${
-                              server.status === "running" ? "bg-green-500" :
-                              server.status === "stopped" ? "bg-gray-400" :
-                              "bg-red-500"
-                            }`} />
+                            <div className={`w-2 h-2 rounded-full ${server.status === "running" ? "bg-green-500" :
+                                server.status === "stopped" ? "bg-gray-400" :
+                                  "bg-red-500"
+                              }`} />
                             <div>
                               <p className="font-medium">{server.name}</p>
                               <p className="text-xs text-muted-foreground">
