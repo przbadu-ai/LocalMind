@@ -94,6 +94,41 @@ kamal setup
 kamal deploy
 ```
 
+## One-Time Shell Configuration (Recommended)
+
+To avoid loading environment variables before each deploy, add them to your shell profile:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export KAMAL_REGISTRY_PASSWORD="ghp_your_token_here"
+export LLM_API_KEY="your_api_key_or_not-required"
+
+# Reload your shell
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+After this setup, you can simply run:
+
+```bash
+kamal deploy
+```
+
+### Alternative: Load from .env file
+
+If you prefer to keep secrets in .env file only, load them before deploying:
+
+```bash
+set -a && source .env && set +a && kamal deploy
+```
+
+Or create a convenient alias in your shell profile:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+alias kamal-deploy='set -a && source .env && set +a && kamal deploy'
+alias kamal-setup='set -a && source .env && set +a && kamal setup'
+```
+
 ## Configuration
 
 ### Environment Variables (.env)
