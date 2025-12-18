@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import settings
+from database.models import LLMProvider
 from database.repositories.config_repository import ConfigRepository
 from services.llm_service import llm_service
 
@@ -31,6 +32,24 @@ class LLMSettingsResponse(BaseModel):
     api_key: str  # Masked
     model: str
     available: bool
+    is_default: bool = False
+
+
+class LLMProviderResponse(BaseModel):
+    """Response model for a single LLM provider."""
+
+    name: str
+    base_url: str
+    api_key: str  # Masked
+    model: str
+    is_default: bool
+
+
+class LLMProvidersListResponse(BaseModel):
+    """Response model for list of LLM providers."""
+
+    providers: list[LLMProviderResponse]
+    default_provider: Optional[str]
 
 
 class SettingsResponse(BaseModel):
@@ -49,19 +68,41 @@ def _mask_api_key(api_key: str) -> str:
     return api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:]
 
 
+def _get_default_provider_settings() -> dict:
+    """Get the default provider settings or fall back to config."""
+    default_provider = config_repo.get_default_llm_provider()
+    if default_provider:
+        return {
+            "provider": default_provider.name,
+            "base_url": default_provider.base_url,
+            "api_key": default_provider.api_key or "",
+            "model": default_provider.model or "",
+            "is_default": True,
+        }
+    # Fall back to old config system for backward compatibility
+    llm_config = config_repo.get_config_value("llm", {})
+    return {
+        "provider": llm_config.get("provider", settings.llm_provider),
+        "base_url": llm_config.get("base_url", settings.llm_base_url),
+        "api_key": llm_config.get("api_key", settings.llm_api_key),
+        "model": llm_config.get("model", settings.llm_model),
+        "is_default": True,
+    }
+
+
 @router.get("/settings")
 async def get_settings() -> SettingsResponse:
     """Get all settings."""
-    # Get LLM settings from database or use defaults
-    llm_config = config_repo.get_config_value("llm", {})
+    provider_settings = _get_default_provider_settings()
 
     return SettingsResponse(
         llm=LLMSettingsResponse(
-            provider=llm_config.get("provider", settings.llm_provider),
-            base_url=llm_config.get("base_url", settings.llm_base_url),
-            api_key=_mask_api_key(llm_config.get("api_key", settings.llm_api_key)),
-            model=llm_config.get("model", settings.llm_model),
+            provider=provider_settings["provider"],
+            base_url=provider_settings["base_url"],
+            api_key=_mask_api_key(provider_settings["api_key"]),
+            model=provider_settings["model"],
             available=llm_service.is_available(),
+            is_default=provider_settings["is_default"],
         ),
         app={
             "name": "Local Mind",
@@ -73,55 +114,193 @@ async def get_settings() -> SettingsResponse:
 
 @router.get("/settings/llm")
 async def get_llm_settings() -> LLMSettingsResponse:
-    """Get LLM settings."""
-    llm_config = config_repo.get_config_value("llm", {})
+    """Get LLM settings (returns default provider)."""
+    provider_settings = _get_default_provider_settings()
 
     return LLMSettingsResponse(
-        provider=llm_config.get("provider", settings.llm_provider),
-        base_url=llm_config.get("base_url", settings.llm_base_url),
-        api_key=_mask_api_key(llm_config.get("api_key", settings.llm_api_key)),
-        model=llm_config.get("model", settings.llm_model),
+        provider=provider_settings["provider"],
+        base_url=provider_settings["base_url"],
+        api_key=_mask_api_key(provider_settings["api_key"]),
+        model=provider_settings["model"],
         available=llm_service.is_available(),
+        is_default=provider_settings["is_default"],
     )
 
 
 @router.put("/settings/llm")
 async def update_llm_settings(request: LLMSettingsRequest) -> LLMSettingsResponse:
-    """Update LLM settings."""
-    # Get current settings
-    current = config_repo.get_config_value("llm", {
-        "provider": settings.llm_provider,
-        "base_url": settings.llm_base_url,
-        "api_key": settings.llm_api_key,
-        "model": settings.llm_model,
-    })
+    """Update LLM settings (updates/creates provider and sets as default)."""
+    provider_name = request.provider or settings.llm_provider
 
-    # Update with new values
-    if request.provider is not None:
-        current["provider"] = request.provider
-    if request.base_url is not None:
-        current["base_url"] = request.base_url
-    if request.api_key is not None:
-        current["api_key"] = request.api_key
-    if request.model is not None:
-        current["model"] = request.model
+    # Get existing provider or create new
+    existing = config_repo.get_llm_provider(provider_name)
 
-    # Save to database
-    config_repo.set_config("llm", current, category="llm")
+    if existing:
+        # Update existing provider
+        if request.base_url is not None:
+            existing.base_url = request.base_url
+        if request.api_key is not None:
+            existing.api_key = request.api_key
+        if request.model is not None:
+            existing.model = request.model
+        existing.is_default = True
+        provider = config_repo.update_llm_provider(existing)
+    else:
+        # Create new provider
+        provider = LLMProvider(
+            name=provider_name,
+            base_url=request.base_url or settings.llm_base_url,
+            api_key=request.api_key,
+            model=request.model,
+            is_default=True,
+        )
+        provider = config_repo.create_llm_provider(provider)
+
+    # Set as default (unsets others)
+    config_repo.set_default_llm_provider(provider_name)
+
+    # Also update old config for backward compatibility
+    config_repo.set_config("llm", {
+        "provider": provider.name,
+        "base_url": provider.base_url,
+        "api_key": provider.api_key or "",
+        "model": provider.model or "",
+    }, category="llm")
 
     # Update the global LLM service
     llm_service.update_config(
-        base_url=current["base_url"],
-        api_key=current["api_key"],
-        model=current["model"],
+        base_url=provider.base_url,
+        api_key=provider.api_key,
+        model=provider.model,
     )
 
     return LLMSettingsResponse(
-        provider=current["provider"],
-        base_url=current["base_url"],
-        api_key=_mask_api_key(current["api_key"]),
-        model=current["model"],
+        provider=provider.name,
+        base_url=provider.base_url,
+        api_key=_mask_api_key(provider.api_key or ""),
+        model=provider.model or "",
         available=llm_service.is_available(),
+        is_default=True,
+    )
+
+
+# New provider-specific endpoints
+
+@router.get("/settings/llm/providers")
+async def get_llm_providers() -> LLMProvidersListResponse:
+    """Get all saved LLM providers."""
+    providers = config_repo.get_all_llm_providers()
+    default = config_repo.get_default_llm_provider()
+
+    return LLMProvidersListResponse(
+        providers=[
+            LLMProviderResponse(
+                name=p.name,
+                base_url=p.base_url,
+                api_key=_mask_api_key(p.api_key or ""),
+                model=p.model or "",
+                is_default=p.is_default,
+            )
+            for p in providers
+        ],
+        default_provider=default.name if default else None,
+    )
+
+
+@router.get("/settings/llm/providers/{name}")
+async def get_llm_provider(name: str) -> LLMProviderResponse:
+    """Get a specific LLM provider by name."""
+    provider = config_repo.get_llm_provider(name)
+
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+
+    return LLMProviderResponse(
+        name=provider.name,
+        base_url=provider.base_url,
+        api_key=_mask_api_key(provider.api_key or ""),
+        model=provider.model or "",
+        is_default=provider.is_default,
+    )
+
+
+@router.put("/settings/llm/providers/{name}")
+async def update_llm_provider(name: str, request: LLMSettingsRequest) -> LLMProviderResponse:
+    """Create or update a specific LLM provider."""
+    existing = config_repo.get_llm_provider(name)
+
+    if existing:
+        # Update existing
+        if request.base_url is not None:
+            existing.base_url = request.base_url
+        if request.api_key is not None:
+            existing.api_key = request.api_key
+        if request.model is not None:
+            existing.model = request.model
+        provider = config_repo.update_llm_provider(existing)
+    else:
+        # Create new
+        provider = LLMProvider(
+            name=name,
+            base_url=request.base_url or "",
+            api_key=request.api_key,
+            model=request.model,
+            is_default=False,
+        )
+        provider = config_repo.create_llm_provider(provider)
+
+    return LLMProviderResponse(
+        name=provider.name,
+        base_url=provider.base_url,
+        api_key=_mask_api_key(provider.api_key or ""),
+        model=provider.model or "",
+        is_default=provider.is_default,
+    )
+
+
+@router.delete("/settings/llm/providers/{name}")
+async def delete_llm_provider(name: str) -> dict:
+    """Delete an LLM provider."""
+    if not config_repo.delete_llm_provider(name):
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+
+    return {"success": True, "message": f"Provider '{name}' deleted"}
+
+
+@router.post("/settings/llm/providers/{name}/default")
+async def set_default_llm_provider(name: str) -> LLMProviderResponse:
+    """Set a provider as the default."""
+    provider = config_repo.get_llm_provider(name)
+
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+
+    config_repo.set_default_llm_provider(name)
+
+    # Also update old config for backward compatibility
+    config_repo.set_config("llm", {
+        "provider": provider.name,
+        "base_url": provider.base_url,
+        "api_key": provider.api_key or "",
+        "model": provider.model or "",
+    }, category="llm")
+
+    # Update the global LLM service
+    llm_service.update_config(
+        base_url=provider.base_url,
+        api_key=provider.api_key,
+        model=provider.model,
+    )
+
+    # Refresh provider to get updated is_default
+    provider = config_repo.get_llm_provider(name)
+
+    return LLMProviderResponse(
+        name=provider.name,
+        base_url=provider.base_url,
+        api_key=_mask_api_key(provider.api_key or ""),
+        model=provider.model or "",
+        is_default=provider.is_default,
     )
 
 
@@ -171,7 +350,7 @@ async def test_llm_connection(request: LLMSettingsRequest) -> dict:
             return {
                 "success": True,
                 "message": f"Connected successfully. Found {len(models)} models.",
-                "models": models[:10],  # Return first 10 models
+                "models": models,
             }
 
         # If no models returned, try a simple chat
@@ -228,3 +407,31 @@ async def delete_config_value(key: str) -> dict:
         raise HTTPException(status_code=404, detail="Configuration not found")
 
     return {"success": True, "message": f"Configuration '{key}' deleted"}
+
+
+@router.post("/settings/llm/models")
+async def fetch_available_models(request: LLMSettingsRequest) -> dict:
+    """Fetch available models based on provided settings."""
+    from services.llm_service import LLMService
+
+    # Use provided settings or current ones
+    llm_config = config_repo.get_config_value("llm", {})
+
+    service = LLMService(
+        base_url=request.base_url or llm_config.get("base_url", settings.llm_base_url),
+        api_key=request.api_key or llm_config.get("api_key", settings.llm_api_key),
+        model=request.model or llm_config.get("model", settings.llm_model),
+    )
+
+    try:
+        models = service.get_models()
+        return {
+            "models": models,
+            "count": len(models)
+        }
+    except Exception as e:
+        return {
+            "models": [],
+            "error": str(e)
+        }
+

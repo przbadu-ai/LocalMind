@@ -96,3 +96,16 @@ class MCPServer(BaseModel):
     enabled: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LLMProvider(BaseModel):
+    """LLM provider configuration."""
+
+    id: str = Field(default_factory=generate_uuid)
+    name: str  # Provider key: ollama, openai, cerebras, etc.
+    base_url: str
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    is_default: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

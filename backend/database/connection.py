@@ -82,6 +82,18 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- LLM Providers table
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    model TEXT,
+    is_default INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -107,12 +119,46 @@ def init_db() -> None:
 
 def _migrate_db(conn: sqlite3.Connection) -> None:
     """Run database migrations."""
+    import json
+    import uuid
+
     # Check if is_pinned column exists in chats table
     cursor = conn.execute("PRAGMA table_info(chats)")
     columns = [row[1] for row in cursor.fetchall()]
-    
+
     if "is_pinned" not in columns:
         conn.execute("ALTER TABLE chats ADD COLUMN is_pinned INTEGER DEFAULT 0")
+
+    # Migrate existing LLM config from configurations table to llm_providers
+    # Check if llm_providers table has any data
+    cursor = conn.execute("SELECT COUNT(*) FROM llm_providers")
+    provider_count = cursor.fetchone()[0]
+
+    if provider_count == 0:
+        # Check if there's existing LLM config in configurations table
+        cursor = conn.execute(
+            "SELECT value FROM configurations WHERE key = 'llm'"
+        )
+        row = cursor.fetchone()
+
+        if row:
+            try:
+                llm_config = json.loads(row[0])
+                provider_name = llm_config.get("provider", "ollama")
+                base_url = llm_config.get("base_url", "http://localhost:11434/v1")
+                api_key = llm_config.get("api_key", "")
+                model = llm_config.get("model", "")
+
+                # Insert into llm_providers as default
+                conn.execute(
+                    """
+                    INSERT INTO llm_providers (id, name, base_url, api_key, model, is_default)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    (str(uuid.uuid4()), provider_name, base_url, api_key, model),
+                )
+            except (json.JSONDecodeError, KeyError):
+                pass
 
 
 @contextmanager
