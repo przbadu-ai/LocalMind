@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink } from "lucide-react"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
 import { chatService, type Chat } from "@/services/chat-service"
@@ -54,6 +56,25 @@ export default function ChatDetail() {
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0)
   const [isTranscriptLoading, setIsTranscriptLoading] = useState(false)
+  const [isVideoSheetOpen, setIsVideoSheetOpen] = useState(false)
+  const isMobile = useIsMobile()
+  // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
+  const [isCompact, setIsCompact] = useState(false)
+
+  useEffect(() => {
+    const checkCompact = () => {
+      setIsCompact(window.innerWidth < 1024) // Switch to stacked view below 1024px
+    }
+
+    // Initial check
+    checkCompact()
+
+    window.addEventListener('resize', checkCompact)
+    return () => window.removeEventListener('resize', checkCompact)
+  }, [])
+
+  // Use effective layout mode
+  const showStackedView = isMobile || isCompact
 
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -177,6 +198,7 @@ export default function ChatDetail() {
     setCurrentTranscript(null)
     setTranscriptError(null)
     setCurrentPlaybackTime(0)
+    setIsVideoSheetOpen(false)
   }
 
   // Send message function that accepts an optional message parameter
@@ -428,118 +450,264 @@ export default function ChatDetail() {
   // Determine if we should show two-column layout
   const hasVideoArtifact = currentVideoId !== null
 
+  // Ensure video sheet is open when switching to mobile with active video
+  useEffect(() => {
+    if (showStackedView && hasVideoArtifact && !isVideoSheetOpen) {
+      // Optional: auto-open if needed, or leave it to user
+      // setIsVideoSheetOpen(true)
+    }
+  }, [showStackedView, hasVideoArtifact, isVideoSheetOpen])
+
+  const ChatPanel = (
+    <div className="h-full flex flex-col">
+      {/* Scrollable Messages */}
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
+          <div className="space-y-6">
+            {messages.map((msg) => (
+              <div key={msg.id} className="space-y-3">
+                <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
+                    ? 'bg-muted text-muted-foreground'
+                    : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
+                      ? 'bg-destructive/10 border border-destructive/20 text-destructive'
+                      : ''
+                    }`}>
+                    {msg.type === 'assistant' && msg.content === '' && isLoading ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="text-sm">{loadingMessage || "Thinking..."}</span>
+                      </div>
+                    ) : (
+                      <>
+                        {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="font-medium text-sm">Connection Error</span>
+                          </div>
+                        )}
+                        {msg.type === 'assistant' ? (
+                          <MarkdownRenderer content={msg.content} />
+                        ) : (
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                        )}
+                        {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-3 h-7 text-xs"
+                            onClick={() => {
+                              const lastUserMsg = messages.filter(m => m.type === 'user').pop()
+                              if (lastUserMsg) {
+                                setMessages(prev => prev.slice(0, -2))
+                                sendMessage(lastUserMsg.content)
+                              }
+                            }}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Retry
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
+                  </div>
+                </div>
+
+                {/* YouTube artifact indicator */}
+                {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
+                  <div className="ml-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                      onClick={() => {
+                        setCurrentVideoId(msg.artifactData!.video_id!)
+                        fetchTranscript(msg.artifactData!.video_id!)
+                        if (showStackedView) setIsVideoSheetOpen(true)
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Youtube className="h-4 w-4 text-red-500" />
+                        <div>
+                          <span className="text-sm font-medium">YouTube Video</span>
+                          <div className="text-xs text-muted-foreground">
+                            {msg.artifactData.transcript_available ? 'Transcript available' : 'Click to load'}
+                          </div>
+                        </div>
+                      </div>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
+          </div>
+        </ScrollArea>
+      </div>
+
+      {/* Message Input */}
+      <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex gap-2">
+          <Input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Send a message or paste a YouTube URL..."
+            className="flex-1"
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+          />
+          <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const VideoPanel = (
+    <div className="h-full flex flex-col bg-background">
+      {/* Panel Header */}
+      <div className="flex-shrink-0 p-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Youtube className="h-5 w-5 text-red-500" />
+          <span className="font-medium">YouTube Video</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+          >
+            <a
+              href={`https://www.youtube.com/watch?v=${currentVideoId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink className="h-4 w-4 mr-1" />
+              Open
+            </a>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleCloseVideo}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Video Player */}
+      <div className="flex-shrink-0 p-3">
+        <YouTubePlayer
+          videoId={currentVideoId || ""}
+          onTimeUpdate={setCurrentPlaybackTime}
+        />
+      </div>
+
+      {/* Transcript Tabs */}
+      <Tabs defaultValue="transcript" className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="mx-3">
+          <TabsTrigger value="transcript">Transcript</TabsTrigger>
+          <TabsTrigger value="info">Info</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
+          {isTranscriptLoading ? (
+            <div className="flex items-center justify-center h-full gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Loading transcript...</span>
+            </div>
+          ) : currentTranscript ? (
+            <TranscriptViewer
+              segments={currentTranscript.segments}
+              currentTime={currentPlaybackTime}
+            />
+          ) : transcriptError ? (
+            <div className="p-4">
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <span className="font-medium text-destructive">Transcript Unavailable</span>
+                </div>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                  {transcriptError}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="info" className="flex-1 overflow-hidden mt-0 p-4">
+          {currentTranscript && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold">
+                    {currentTranscript.segments.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Segments</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold">
+                    {currentTranscript.language_code.toUpperCase()}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Language</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold">
+                    {currentTranscript.is_generated ? 'Auto' : 'Manual'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Type</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Video ID: {currentVideoId}
+                </p>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+
+  if (showStackedView) {
+    return (
+      <div className="h-full flex flex-col">
+        {ChatPanel}
+        <Sheet open={isVideoSheetOpen} onOpenChange={setIsVideoSheetOpen}>
+          <SheetContent side="bottom" className="h-[85vh] p-0 flex flex-col">
+            <SheetHeader className="sr-only">
+              <SheetTitle>YouTube Video</SheetTitle>
+              <SheetDescription>
+                Watch video and view transcript
+              </SheetDescription>
+            </SheetHeader>
+            {VideoPanel}
+          </SheetContent>
+        </Sheet>
+      </div>
+    )
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           {/* Chat Panel */}
           <ResizablePanel defaultSize={hasVideoArtifact ? 50 : 100} minSize={30}>
-            <div className="h-full flex flex-col">
-              {/* Scrollable Messages */}
-              <div className="flex-1 overflow-hidden">
-                <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
-                  <div className="space-y-6">
-                    {messages.map((msg) => (
-                      <div key={msg.id} className="space-y-3">
-                        <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
-                            ? 'bg-muted text-muted-foreground'
-                            : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
-                              ? 'bg-destructive/10 border border-destructive/20 text-destructive'
-                              : ''
-                            }`}>
-                            {msg.type === 'assistant' && msg.content === '' && isLoading ? (
-                              <div className="flex items-center gap-2">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                <span className="text-sm">{loadingMessage || "Thinking..."}</span>
-                              </div>
-                            ) : (
-                              <>
-                                {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && (
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <span className="font-medium text-sm">Connection Error</span>
-                                  </div>
-                                )}
-                                {msg.type === 'assistant' ? (
-                                  <MarkdownRenderer content={msg.content} />
-                                ) : (
-                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                                )}
-                                {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="mt-3 h-7 text-xs"
-                                    onClick={() => {
-                                      const lastUserMsg = messages.filter(m => m.type === 'user').pop()
-                                      if (lastUserMsg) {
-                                        setMessages(prev => prev.slice(0, -2))
-                                        sendMessage(lastUserMsg.content)
-                                      }
-                                    }}
-                                  >
-                                    <RefreshCw className="h-3 w-3 mr-1" />
-                                    Retry
-                                  </Button>
-                                )}
-                              </>
-                            )}
-                            <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
-                          </div>
-                        </div>
-
-                        {/* YouTube artifact indicator */}
-                        {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
-                          <div className="ml-4">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                              onClick={() => {
-                                setCurrentVideoId(msg.artifactData!.video_id!)
-                                fetchTranscript(msg.artifactData!.video_id!)
-                              }}
-                            >
-                              <div className="flex items-center gap-3">
-                                <Youtube className="h-4 w-4 text-red-500" />
-                                <div>
-                                  <span className="text-sm font-medium">YouTube Video</span>
-                                  <div className="text-xs text-muted-foreground">
-                                    {msg.artifactData.transcript_available ? 'Transcript available' : 'Click to load'}
-                                  </div>
-                                </div>
-                              </div>
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
-                  </div>
-                </ScrollArea>
-              </div>
-
-              {/* Message Input */}
-              <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="flex gap-2">
-                  <Input
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Send a message or paste a YouTube URL..."
-                    className="flex-1"
-                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                  />
-                  <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
-                    {isLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            {ChatPanel}
           </ResizablePanel>
 
           {/* Video/Transcript Panel */}
@@ -547,117 +715,7 @@ export default function ChatDetail() {
             <>
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={30}>
-                <div className="h-full flex flex-col bg-background">
-                  {/* Panel Header */}
-                  <div className="flex-shrink-0 p-3 border-b border-border flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Youtube className="h-5 w-5 text-red-500" />
-                      <span className="font-medium">YouTube Video</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        asChild
-                      >
-                        <a
-                          href={`https://www.youtube.com/watch?v=${currentVideoId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          Open
-                        </a>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={handleCloseVideo}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Video Player */}
-                  <div className="flex-shrink-0 p-3">
-                    <YouTubePlayer
-                      videoId={currentVideoId}
-                      onTimeUpdate={setCurrentPlaybackTime}
-                    />
-                  </div>
-
-                  {/* Transcript Tabs */}
-                  <Tabs defaultValue="transcript" className="flex-1 flex flex-col overflow-hidden">
-                    <TabsList className="mx-3">
-                      <TabsTrigger value="transcript">Transcript</TabsTrigger>
-                      <TabsTrigger value="info">Info</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
-                      {isTranscriptLoading ? (
-                        <div className="flex items-center justify-center h-full gap-2">
-                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">Loading transcript...</span>
-                        </div>
-                      ) : currentTranscript ? (
-                        <TranscriptViewer
-                          segments={currentTranscript.segments}
-                          currentTime={currentPlaybackTime}
-                        />
-                      ) : transcriptError ? (
-                        <div className="p-4">
-                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                            <div className="flex items-center gap-2 mb-2">
-                              <AlertCircle className="h-4 w-4 text-destructive" />
-                              <span className="font-medium text-destructive">Transcript Unavailable</span>
-                            </div>
-                            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                              {transcriptError}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="info" className="flex-1 overflow-hidden mt-0 p-4">
-                      {currentTranscript && (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="bg-muted/50 rounded-lg p-3 text-center">
-                              <p className="text-2xl font-bold">
-                                {currentTranscript.segments.length}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Segments</p>
-                            </div>
-                            <div className="bg-muted/50 rounded-lg p-3 text-center">
-                              <p className="text-2xl font-bold">
-                                {currentTranscript.language_code.toUpperCase()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Language</p>
-                            </div>
-                            <div className="bg-muted/50 rounded-lg p-3 text-center">
-                              <p className="text-2xl font-bold">
-                                {currentTranscript.is_generated ? 'Auto' : 'Manual'}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Type</p>
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground">
-                              Video ID: {currentVideoId}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </TabsContent>
-                  </Tabs>
-                </div>
+                {VideoPanel}
               </ResizablePanel>
             </>
           )}
