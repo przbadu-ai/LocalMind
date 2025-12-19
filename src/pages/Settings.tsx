@@ -52,7 +52,7 @@ interface LLMSettings {
 interface SavedProvider {
   name: string
   base_url: string
-  api_key: string  // Masked from API
+  api_key: string
   model: string
   is_default: boolean
 }
@@ -62,7 +62,7 @@ const PROVIDER_CONFIGS: Record<string, { url: string; requiresApiKey: boolean; p
   ollama: {
     url: "http://localhost:11434/v1",
     requiresApiKey: false,
-    placeholder: "llama3:instruct",
+    placeholder: "ministral-3",
   },
   openai: {
     url: "https://api.openai.com/v1",
@@ -77,12 +77,12 @@ const PROVIDER_CONFIGS: Record<string, { url: string; requiresApiKey: boolean; p
   gemini: {
     url: "https://generativelanguage.googleapis.com/v1beta/openai",
     requiresApiKey: true,
-    placeholder: "gemini-2.0-flash",
+    placeholder: "gemini-2.5-flash",
   },
   cerebras: {
     url: "https://api.cerebras.ai/v1",
     requiresApiKey: true,
-    placeholder: "llama-4-scout-17b-16e-instruct",
+    placeholder: "zai-glm-4.6",
   },
   claude: {
     url: "https://api.anthropic.com/v1",
@@ -170,7 +170,7 @@ export default function Settings() {
         setEditedLlm({
           provider: data.provider,
           base_url: data.base_url,
-          api_key: "",  // Don't show masked key
+          api_key: data.api_key || "",  // Use masked API key from backend
           model: data.model,
         })
       }
@@ -199,7 +199,6 @@ export default function Settings() {
   const loadAvailableModels = async () => {
     try {
       setModelsLoading(true)
-      // Use the new POST endpoint that accepts current settings
       const response = await fetch(`${API_BASE_URL}/api/v1/settings/llm/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -553,11 +552,11 @@ export default function Settings() {
                               const config = PROVIDER_CONFIGS[value]
 
                               if (savedProvider) {
-                                // Use saved settings (but clear api_key since it's masked)
+                                // Use saved settings with masked API key from backend
                                 setEditedLlm({
                                   provider: value,
                                   base_url: savedProvider.base_url,
-                                  api_key: "",  // Clear - user can re-enter if needed
+                                  api_key: savedProvider.api_key || "",
                                   model: savedProvider.model,
                                 })
                               } else {

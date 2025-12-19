@@ -10,6 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.connection import init_db
 
+# Initialize database early - before routers are imported
+# This ensures tables exist even in reload mode
+init_db()
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
