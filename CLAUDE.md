@@ -178,3 +178,111 @@ When updating configuration:
 - Ollama host: `192.168.1.173:11434`
 - Backend port: `52817`
 - All LLM settings centralized in app.config.json
+
+## Database Migration System
+
+### IMPORTANT: Always Use Migrations for Database Changes
+**NEVER modify the database schema directly.** All database changes MUST go through the migration system.
+
+### Migration System Overview
+- Location: `backend/database/migrations/`
+- Runner: `backend/database/migrator.py`
+- Tracking table: `schema_migrations`
+- Migrations run automatically on backend startup via `init_db()`
+
+### Creating a New Migration
+1. Create a new file in `backend/database/migrations/` with timestamp prefix:
+   ```
+   YYYYMMDDHHMMSS_description.py
+   ```
+   Example: `20241220150000_add_user_preferences.py`
+
+2. Use this template:
+   ```python
+   """Description of what this migration does."""
+
+   import sqlite3
+
+   VERSION = "20241220150000"
+   DESCRIPTION = "Add user preferences table"
+
+   def up(conn: sqlite3.Connection) -> None:
+       """Apply the migration."""
+       # For new tables:
+       conn.execute("""
+           CREATE TABLE IF NOT EXISTS user_preferences (
+               id TEXT PRIMARY KEY,
+               key TEXT UNIQUE NOT NULL,
+               value JSON
+           )
+       """)
+
+       # For adding columns (always check if exists first):
+       cursor = conn.execute("PRAGMA table_info(some_table)")
+       columns = [row[1] for row in cursor.fetchall()]
+       if "new_column" not in columns:
+           conn.execute("ALTER TABLE some_table ADD COLUMN new_column TEXT")
+   ```
+
+### Migration Best Practices
+1. **Always use `IF NOT EXISTS`** for CREATE TABLE statements
+2. **Always check column existence** before ALTER TABLE ADD COLUMN
+3. **Migrations must be idempotent** - safe to run multiple times
+4. **Never modify existing migrations** - create new ones instead
+5. **Test migrations locally** before deploying
+6. **Include data migrations** when needed (e.g., migrating data between tables)
+
+### Common Migration Patterns
+
+**Adding a new table:**
+```python
+def up(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS new_table (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+```
+
+**Adding a column:**
+```python
+def up(conn: sqlite3.Connection) -> None:
+    cursor = conn.execute("PRAGMA table_info(existing_table)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "new_column" not in columns:
+        conn.execute("ALTER TABLE existing_table ADD COLUMN new_column TEXT DEFAULT ''")
+```
+
+**Adding an index:**
+```python
+def up(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_table_column ON table_name(column_name)")
+```
+
+**Migrating data between tables:**
+```python
+def up(conn: sqlite3.Connection) -> None:
+    # Create new table
+    conn.execute("CREATE TABLE IF NOT EXISTS new_table (...)")
+
+    # Migrate data from old location
+    cursor = conn.execute("SELECT * FROM old_table WHERE ...")
+    for row in cursor.fetchall():
+        conn.execute("INSERT INTO new_table (...) VALUES (...)", row)
+
+    # Optionally clean up old data
+    conn.execute("DELETE FROM old_table WHERE ...")
+```
+
+### Checking Migration Status
+```python
+from database.migrator import get_migration_status
+from database.connection import get_db
+
+with get_db() as conn:
+    status = get_migration_status(conn)
+    print(f"Applied: {status['applied_versions']}")
+    print(f"Pending: {status['pending_versions']}")
+```

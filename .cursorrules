@@ -1,0 +1,51 @@
+# LocalMind Project Rules
+
+## Database Changes - CRITICAL
+
+**NEVER modify the database schema directly in `connection.py` or any other file.**
+
+All database schema changes MUST be done through migrations:
+
+1. Create a new migration file in `backend/database/migrations/`
+2. Name format: `YYYYMMDDHHMMSS_description.py`
+3. Include VERSION, DESCRIPTION, and up() function
+4. Use `CREATE TABLE IF NOT EXISTS` for new tables
+5. Check column existence before `ALTER TABLE ADD COLUMN`
+
+Example migration:
+```python
+"""Add new feature table."""
+import sqlite3
+
+VERSION = "20241220150000"
+DESCRIPTION = "Add new feature table"
+
+def up(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS new_table (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+    """)
+```
+
+## Configuration
+
+- All config in `app.config.json` (single source of truth)
+- Backend imports: `from config.settings import settings`
+- Frontend imports: `import { API_BASE_URL } from "@/config/app-config"`
+- Never hardcode URLs, ports, or model names
+
+## Tech Stack
+
+- Frontend: React + TypeScript + Shadcn UI + Zustand
+- Backend: Python FastAPI
+- Database: SQLite with migration system
+- Desktop: Tauri
+
+## Code Style
+
+- Use TypeScript strict mode
+- Prefer functional components with hooks
+- Use Zustand for state management
+- Follow existing code patterns in the codebase
