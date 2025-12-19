@@ -16,8 +16,8 @@ class ChatRepository:
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO chats (id, title, created_at, updated_at, is_archived, is_pinned)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (id, title, created_at, updated_at, is_archived, is_pinned, model, provider)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chat.id,
@@ -26,6 +26,8 @@ class ChatRepository:
                     chat.updated_at.isoformat(),
                     int(chat.is_archived),
                     int(chat.is_pinned),
+                    chat.model,
+                    chat.provider,
                 ),
             )
             conn.commit()
@@ -84,7 +86,7 @@ class ChatRepository:
             conn.execute(
                 """
                 UPDATE chats
-                SET title = ?, updated_at = ?, is_archived = ?, is_pinned = ?
+                SET title = ?, updated_at = ?, is_archived = ?, is_pinned = ?, model = ?, provider = ?
                 WHERE id = ?
                 """,
                 (
@@ -92,11 +94,27 @@ class ChatRepository:
                     chat.updated_at.isoformat(),
                     int(chat.is_archived),
                     int(chat.is_pinned),
+                    chat.model,
+                    chat.provider,
                     chat.id,
                 ),
             )
             conn.commit()
         return chat
+
+    def update_model(self, chat_id: str, provider: Optional[str], model: Optional[str]) -> bool:
+        """Update chat model and provider."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE chats
+                SET model = ?, provider = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (model, provider, datetime.utcnow().isoformat(), chat_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def update_title(self, chat_id: str, title: str) -> bool:
         """Update chat title."""
@@ -194,11 +212,14 @@ class ChatRepository:
 
     def _row_to_chat(self, row) -> Chat:
         """Convert a database row to a Chat model."""
+        keys = row.keys()
         return Chat(
             id=row["id"],
             title=row["title"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             is_archived=bool(row["is_archived"]),
-            is_pinned=bool(row["is_pinned"]) if "is_pinned" in row.keys() else False,
+            is_pinned=bool(row["is_pinned"]) if "is_pinned" in keys else False,
+            model=row["model"] if "model" in keys else None,
+            provider=row["provider"] if "provider" in keys else None,
         )

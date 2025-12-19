@@ -12,8 +12,9 @@ from sse_starlette.sse import EventSourceResponse
 from agents.title_agent import generate_chat_title
 from database.models import Chat, Message
 from database.repositories.chat_repository import ChatRepository
+from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
-from services.llm_service import ChatMessage, llm_service
+from services.llm_service import ChatMessage, LLMService, llm_service
 from services.youtube_service import youtube_service
 from utils.youtube_utils import find_youtube_urls
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 chat_repo = ChatRepository()
 message_repo = MessageRepository()
+config_repo = ConfigRepository()
 
 
 class ChatStreamRequest(BaseModel):
@@ -31,6 +33,28 @@ class ChatStreamRequest(BaseModel):
     conversation_id: Optional[str] = None
     temperature: float = 0.7
     include_transcript: bool = True
+    # Optional per-chat model override
+    provider: Optional[str] = None
+    model: Optional[str] = None
+
+
+def get_llm_service_for_chat(chat: Optional[Chat]) -> LLMService:
+    """Get the appropriate LLM service for a chat.
+
+    If the chat has a custom model/provider set, create a new service with those settings.
+    Otherwise, return the global llm_service.
+    """
+    if chat and chat.provider and chat.model:
+        # Get provider credentials
+        provider = config_repo.get_llm_provider_for_use(chat.provider)
+        if provider:
+            return LLMService(
+                base_url=provider.base_url,
+                api_key=provider.api_key,
+                model=chat.model,
+            )
+    # Fall back to global service
+    return llm_service
 
 
 async def stream_chat_response(
@@ -186,18 +210,23 @@ Based on this transcript, provide a helpful, structured response. If this is the
         # Add current message
         context_messages.append(ChatMessage(role="user", content=message))
 
+        # Get the appropriate LLM service for this chat (may be per-chat model)
+        chat_llm_service = get_llm_service_for_chat(chat)
+
         # Notify frontend that LLM is starting
         yield {
             "event": "message",
             "data": json.dumps({
                 "type": "llm_starting",
+                "model": chat_llm_service.model,
+                "provider": chat.provider if chat else None,
             }),
         }
 
         # Stream LLM response
         full_response = ""
         try:
-            for chunk in llm_service.chat_stream(context_messages, temperature=temperature):
+            for chunk in chat_llm_service.chat_stream(context_messages, temperature=temperature):
                 full_response += chunk
                 yield {
                     "event": "message",
@@ -214,7 +243,7 @@ Based on this transcript, provide a helpful, structured response. If this is the
                     "event": "message",
                     "data": json.dumps({
                         "type": "error",
-                        "error": f"Cannot connect to LLM service. Please check that the LLM server is running at {llm_service.base_url}",
+                        "error": f"Cannot connect to LLM service. Please check that the LLM server is running at {chat_llm_service.base_url}",
                     }),
                 }
             else:

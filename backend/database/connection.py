@@ -129,6 +129,12 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
     if "is_pinned" not in columns:
         conn.execute("ALTER TABLE chats ADD COLUMN is_pinned INTEGER DEFAULT 0")
 
+    # Add model and provider columns for per-chat model selection
+    if "model" not in columns:
+        conn.execute("ALTER TABLE chats ADD COLUMN model TEXT")
+    if "provider" not in columns:
+        conn.execute("ALTER TABLE chats ADD COLUMN provider TEXT")
+
     # Migrate existing LLM config from configurations table to llm_providers
     # Check if llm_providers table has any data
     cursor = conn.execute("SELECT COUNT(*) FROM llm_providers")
