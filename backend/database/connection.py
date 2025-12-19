@@ -157,6 +157,9 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
                     """,
                     (str(uuid.uuid4()), provider_name, base_url, api_key, model),
                 )
+
+                # Delete the legacy configuration entry
+                conn.execute("DELETE FROM configurations WHERE key = 'llm'")
             except (json.JSONDecodeError, KeyError):
                 pass
 

@@ -242,7 +242,14 @@ class ConfigRepository:
     # LLM Provider methods
 
     def create_llm_provider(self, provider: LLMProvider) -> LLMProvider:
-        """Create a new LLM provider."""
+        """Create a new LLM provider.
+
+        Args:
+            provider: The LLMProvider to create
+
+        Returns:
+            The created LLMProvider
+        """
         with get_db() as conn:
             conn.execute(
                 """
@@ -253,7 +260,7 @@ class ConfigRepository:
                     provider.id,
                     provider.name,
                     provider.base_url,
-                    provider.api_key,
+                    provider.api_key or "",
                     provider.model,
                     int(provider.is_default),
                     provider.created_at.isoformat(),
@@ -264,7 +271,14 @@ class ConfigRepository:
         return provider
 
     def get_llm_provider(self, name: str) -> Optional[LLMProvider]:
-        """Get an LLM provider by name."""
+        """Get an LLM provider by name.
+
+        Args:
+            name: The provider name
+
+        Returns:
+            The LLMProvider or None if not found
+        """
         with get_db() as conn:
             row = conn.execute(
                 "SELECT * FROM llm_providers WHERE name = ?",
@@ -276,8 +290,23 @@ class ConfigRepository:
 
             return self._row_to_llm_provider(row)
 
+    def get_llm_provider_for_use(self, name: str) -> Optional[LLMProvider]:
+        """Get an LLM provider for actual LLM calls.
+
+        Args:
+            name: The provider name
+
+        Returns:
+            The LLMProvider or None if not found
+        """
+        return self.get_llm_provider(name)
+
     def get_all_llm_providers(self) -> list[LLMProvider]:
-        """Get all LLM providers."""
+        """Get all LLM providers.
+
+        Returns:
+            List of all LLMProviders
+        """
         with get_db() as conn:
             rows = conn.execute(
                 "SELECT * FROM llm_providers ORDER BY name"
@@ -285,7 +314,11 @@ class ConfigRepository:
             return [self._row_to_llm_provider(row) for row in rows]
 
     def get_default_llm_provider(self) -> Optional[LLMProvider]:
-        """Get the default LLM provider."""
+        """Get the default LLM provider.
+
+        Returns:
+            The default LLMProvider or None if not found
+        """
         with get_db() as conn:
             row = conn.execute(
                 "SELECT * FROM llm_providers WHERE is_default = 1"
@@ -296,37 +329,90 @@ class ConfigRepository:
 
             return self._row_to_llm_provider(row)
 
-    def update_llm_provider(self, provider: LLMProvider) -> LLMProvider:
-        """Update an LLM provider."""
+    def get_default_llm_provider_for_use(self) -> Optional[LLMProvider]:
+        """Get the default LLM provider for actual LLM calls.
+
+        Returns:
+            The default LLMProvider or None if not found
+        """
+        return self.get_default_llm_provider()
+
+    def update_llm_provider(
+        self,
+        provider: LLMProvider,
+        new_api_key: Optional[str] = None,
+    ) -> LLMProvider:
+        """Update an LLM provider.
+
+        Args:
+            provider: The LLMProvider with updated fields
+            new_api_key: New API key to set (None = keep existing key)
+
+        Returns:
+            The updated LLMProvider
+        """
         provider.updated_at = datetime.utcnow()
 
         with get_db() as conn:
-            conn.execute(
-                """
-                UPDATE llm_providers
-                SET base_url = ?, api_key = ?, model = ?, is_default = ?, updated_at = ?
-                WHERE name = ?
-                """,
-                (
-                    provider.base_url,
-                    provider.api_key,
-                    provider.model,
-                    int(provider.is_default),
-                    provider.updated_at.isoformat(),
-                    provider.name,
-                ),
-            )
+            if new_api_key is not None:
+                # New API key provided - update it
+                conn.execute(
+                    """
+                    UPDATE llm_providers
+                    SET base_url = ?, api_key = ?, model = ?, is_default = ?, updated_at = ?
+                    WHERE name = ?
+                    """,
+                    (
+                        provider.base_url,
+                        new_api_key,
+                        provider.model,
+                        int(provider.is_default),
+                        provider.updated_at.isoformat(),
+                        provider.name,
+                    ),
+                )
+            else:
+                # No new API key - preserve existing key
+                conn.execute(
+                    """
+                    UPDATE llm_providers
+                    SET base_url = ?, model = ?, is_default = ?, updated_at = ?
+                    WHERE name = ?
+                    """,
+                    (
+                        provider.base_url,
+                        provider.model,
+                        int(provider.is_default),
+                        provider.updated_at.isoformat(),
+                        provider.name,
+                    ),
+                )
             conn.commit()
         return provider
 
-    def upsert_llm_provider(self, provider: LLMProvider) -> LLMProvider:
-        """Create or update an LLM provider."""
+    def upsert_llm_provider(
+        self,
+        provider: LLMProvider,
+        new_api_key: Optional[str] = None
+    ) -> LLMProvider:
+        """Create or update an LLM provider.
+
+        Args:
+            provider: The LLMProvider to create or update
+            new_api_key: New API key to set (None = keep existing for update, use provider.api_key for create)
+
+        Returns:
+            The created or updated LLMProvider
+        """
         existing = self.get_llm_provider(provider.name)
         if existing:
             # Preserve id from existing record
             provider.id = existing.id
             provider.created_at = existing.created_at
-            return self.update_llm_provider(provider)
+            return self.update_llm_provider(provider, new_api_key=new_api_key)
+        # For new providers, use the api_key from provider if no new_api_key specified
+        if new_api_key:
+            provider.api_key = new_api_key
         return self.create_llm_provider(provider)
 
     def set_default_llm_provider(self, name: str) -> bool:
@@ -358,7 +444,14 @@ class ConfigRepository:
             return cursor.rowcount > 0
 
     def _row_to_llm_provider(self, row) -> LLMProvider:
-        """Convert a database row to an LLMProvider model."""
+        """Convert a database row to an LLMProvider model.
+
+        Args:
+            row: The database row
+
+        Returns:
+            The LLMProvider model
+        """
         return LLMProvider(
             id=row["id"],
             name=row["name"],

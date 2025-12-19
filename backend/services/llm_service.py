@@ -32,11 +32,22 @@ def clean_llm_output(text: str) -> str:
 
 
 def _get_llm_config_from_db() -> dict:
-    """Get LLM configuration from the database."""
+    """Get LLM configuration from the database (llm_providers table)."""
     try:
         from database.repositories.config_repository import ConfigRepository
         config_repo = ConfigRepository()
-        return config_repo.get_config_value("llm", {})
+
+        # Get default provider with decrypted API key
+        default_provider = config_repo.get_default_llm_provider_for_use()
+        if default_provider:
+            return {
+                "provider": default_provider.name,
+                "base_url": default_provider.base_url,
+                "api_key": default_provider.api_key or "",
+                "model": default_provider.model or "",
+            }
+
+        return {}
     except Exception:
         # Database might not be initialized yet
         return {}
