@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react"
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react"
+import { Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Select,
