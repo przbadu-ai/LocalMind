@@ -19,6 +19,8 @@ class CreateChatRequest(BaseModel):
     """Request body for creating a chat."""
 
     title: Optional[str] = "New Chat"
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class UpdateChatRequest(BaseModel):
@@ -27,6 +29,15 @@ class UpdateChatRequest(BaseModel):
     title: Optional[str] = None
     is_archived: Optional[bool] = None
     is_pinned: Optional[bool] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+
+
+class UpdateModelRequest(BaseModel):
+    """Request body for updating chat model."""
+
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -39,6 +50,8 @@ class ChatResponse(BaseModel):
     is_archived: bool
     is_pinned: bool
     message_count: int
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class ChatWithMessagesResponse(ChatResponse):
@@ -76,6 +89,8 @@ async def get_recent_chats(
             is_archived=chat.is_archived,
             is_pinned=chat.is_pinned,
             message_count=message_repo.count_by_chat_id(chat.id),
+            model=chat.model,
+            provider=chat.provider,
         )
         for chat in chats
     ]
@@ -98,6 +113,8 @@ async def search_chats(
             is_archived=chat.is_archived,
             is_pinned=chat.is_pinned,
             message_count=message_repo.count_by_chat_id(chat.id),
+            model=chat.model,
+            provider=chat.provider,
         )
         for chat in chats
     ]
@@ -106,7 +123,11 @@ async def search_chats(
 @router.post("/chats")
 async def create_chat(request: CreateChatRequest) -> ChatResponse:
     """Create a new chat."""
-    chat = Chat(title=request.title or "New Chat")
+    chat = Chat(
+        title=request.title or "New Chat",
+        model=request.model,
+        provider=request.provider,
+    )
     chat = chat_repo.create(chat)
 
     return ChatResponse(
@@ -117,6 +138,8 @@ async def create_chat(request: CreateChatRequest) -> ChatResponse:
         is_archived=chat.is_archived,
         is_pinned=chat.is_pinned,
         message_count=0,
+        model=chat.model,
+        provider=chat.provider,
     )
 
 
@@ -155,6 +178,8 @@ async def get_chat(
         is_pinned=chat.is_pinned,
         message_count=len(messages),
         messages=messages,
+        model=chat.model,
+        provider=chat.provider,
     )
 
 
@@ -171,6 +196,10 @@ async def update_chat(chat_id: str, request: UpdateChatRequest) -> ChatResponse:
         chat.is_archived = request.is_archived
     if request.is_pinned is not None:
         chat.is_pinned = request.is_pinned
+    if request.model is not None:
+        chat.model = request.model
+    if request.provider is not None:
+        chat.provider = request.provider
 
     chat = chat_repo.update(chat)
 
@@ -182,6 +211,33 @@ async def update_chat(chat_id: str, request: UpdateChatRequest) -> ChatResponse:
         is_archived=chat.is_archived,
         is_pinned=chat.is_pinned,
         message_count=message_repo.count_by_chat_id(chat.id),
+        model=chat.model,
+        provider=chat.provider,
+    )
+
+
+@router.put("/chats/{chat_id}/model")
+async def update_chat_model(chat_id: str, request: UpdateModelRequest) -> ChatResponse:
+    """Update the model for a specific chat."""
+    chat = chat_repo.get_by_id(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    chat_repo.update_model(chat_id, request.provider, request.model)
+
+    # Reload chat to get updated values
+    chat = chat_repo.get_by_id(chat_id)
+
+    return ChatResponse(
+        id=chat.id,
+        title=chat.title,
+        created_at=chat.created_at.isoformat(),
+        updated_at=chat.updated_at.isoformat(),
+        is_archived=chat.is_archived,
+        is_pinned=chat.is_pinned,
+        message_count=message_repo.count_by_chat_id(chat.id),
+        model=chat.model,
+        provider=chat.provider,
     )
 
 

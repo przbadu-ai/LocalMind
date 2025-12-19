@@ -22,6 +22,8 @@ class Chat(BaseModel):
     is_archived: bool = False
     is_pinned: bool = False
     tags: list["ChatTag"] = Field(default_factory=list)
+    model: Optional[str] = None  # Model used for this chat (e.g., "gpt-4o", "llama3:instruct")
+    provider: Optional[str] = None  # Provider for the model (e.g., "openai", "ollama")
 
 
 class ChatTag(BaseModel):

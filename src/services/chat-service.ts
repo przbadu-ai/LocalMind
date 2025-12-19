@@ -20,7 +20,8 @@ export interface Chat {
   is_archived: boolean;
   is_pinned: boolean;
   tags: string[];
-  model?: string;
+  model?: string | null;
+  provider?: string | null;
 }
 
 export interface Message {
@@ -49,6 +50,7 @@ export interface CreateChatRequest {
   description?: string;
   system_prompt?: string;
   model?: string;
+  provider?: string;
   temperature?: number;
 }
 
@@ -58,6 +60,8 @@ export interface UpdateChatRequest {
   is_archived?: boolean;
   is_pinned?: boolean;
   tags?: string[];
+  model?: string;
+  provider?: string;
 }
 
 class ChatService {
@@ -261,6 +265,25 @@ class ChatService {
     if (!response.ok) {
       throw new Error(`Failed to unpin chat: ${response.statusText}`);
     }
+  }
+
+  /**
+   * Update the model for a specific chat.
+   */
+  async updateChatModel(chatId: string, provider: string, model: string): Promise<Chat> {
+    const response = await fetch(`${this.baseUrl}/chats/${chatId}/model`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ provider, model }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update chat model: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 
   /**

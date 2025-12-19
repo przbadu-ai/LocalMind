@@ -30,6 +30,21 @@ export interface ModelInfo {
   provider?: string;
 }
 
+export interface ProviderWithModels {
+  name: string;
+  label: string;
+  is_default: boolean;
+  configured_model: string | null;
+  models: string[];
+  error?: string;
+}
+
+export interface AllProvidersResponse {
+  providers: ProviderWithModels[];
+  default_provider: string | null;
+  default_model: string | null;
+}
+
 export interface AppSettings {
   llm: LLMConfig;
   features?: {
@@ -180,6 +195,25 @@ class SettingsService {
         available: false,
         error: error.detail || response.statusText,
       };
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get all saved providers with their available models.
+   * Used for the model selector dropdown.
+   */
+  async getAllProvidersWithModels(): Promise<AllProvidersResponse> {
+    const response = await fetch(`${this.baseUrl}/llm/providers/all-models`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get providers with models: ${response.statusText}`);
     }
 
     return response.json();

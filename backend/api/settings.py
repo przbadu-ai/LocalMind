@@ -194,6 +194,66 @@ async def get_llm_providers() -> LLMProvidersListResponse:
     )
 
 
+# Provider labels for display
+PROVIDER_LABELS = {
+    "ollama": "Ollama",
+    "openai": "OpenAI",
+    "gemini": "Google Gemini",
+    "cerebras": "Cerebras",
+    "claude": "Claude (Anthropic)",
+    "mistral": "Mistral AI",
+    "openai_compatible": "OpenAI Compatible",
+}
+
+
+@router.get("/settings/llm/providers/all-models")
+async def get_all_providers_with_models() -> dict:
+    """Get all saved providers with their available models.
+
+    Returns providers grouped with their models for the model selector dropdown.
+    """
+    from services.llm_service import LLMService
+
+    providers = config_repo.get_all_llm_providers()
+    default_provider = config_repo.get_default_llm_provider()
+    result = []
+
+    for provider in providers:
+        # Get decrypted credentials for fetching models
+        provider_for_use = config_repo.get_llm_provider_for_use(provider.name)
+
+        provider_data = {
+            "name": provider.name,
+            "label": PROVIDER_LABELS.get(provider.name, provider.name.title()),
+            "is_default": provider.is_default,
+            "configured_model": provider.model,
+            "models": [],
+        }
+
+        # Try to fetch available models from this provider
+        try:
+            service = LLMService(
+                base_url=provider_for_use.base_url,
+                api_key=provider_for_use.api_key,
+                model=provider_for_use.model or "",
+            )
+            models = service.get_models()
+            provider_data["models"] = models
+        except Exception as e:
+            # If we can't fetch models, just include the configured model if any
+            if provider.model:
+                provider_data["models"] = [provider.model]
+            provider_data["error"] = str(e)
+
+        result.append(provider_data)
+
+    return {
+        "providers": result,
+        "default_provider": default_provider.name if default_provider else None,
+        "default_model": default_provider.model if default_provider else None,
+    }
+
+
 @router.get("/settings/llm/providers/{name}")
 async def get_llm_provider(name: str) -> LLMProviderResponse:
     """Get a specific LLM provider by name."""
@@ -420,4 +480,3 @@ async def fetch_available_models(request: LLMSettingsRequest) -> dict:
             "models": [],
             "error": str(e)
         }
-

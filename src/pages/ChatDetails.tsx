@@ -2,17 +2,18 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useLocation } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
-import { API_BASE_URL, DEFAULT_LLM_MODEL, OLLAMA_BASE_URL } from "@/config/app-config"
+import { API_BASE_URL, OLLAMA_BASE_URL } from "@/config/app-config"
 import { chatService, type Chat } from "@/services/chat-service"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
+import { ModelSelector } from "@/components/ModelSelector"
 
 interface ChatMessage {
   id: string
@@ -50,6 +51,10 @@ export default function ChatDetail() {
   const [errorRetryCount, setErrorRetryCount] = useState(0)
   const [currentChat, setCurrentChat] = useState<Chat | null>(null)
 
+  // Model state - derived from chat or user selection
+  const [chatProvider, setChatProvider] = useState<string | null>(null)
+  const [chatModel, setChatModel] = useState<string | null>(null)
+
   // YouTube state
   const [currentVideoId, setCurrentVideoId] = useState<string | null>(null)
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptData | null>(null)
@@ -79,9 +84,31 @@ export default function ChatDetail() {
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
   const hasProcessedInitialMessage = useRef(false)
   const chatDataLoaded = useRef(false)
+
+  // Auto-grow textarea
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      // Calculate the line height (roughly 24px per line with padding)
+      const lineHeight = 24
+      const minHeight = lineHeight // 1 row minimum
+      const maxLines = 5
+      const maxHeight = lineHeight * maxLines
+
+      // Reset height to measure content
+      textarea.style.height = `${minHeight}px`
+
+      // Only grow if content exceeds minimum
+      if (textarea.scrollHeight > minHeight) {
+        const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+        textarea.style.height = `${newHeight}px`
+      }
+    }
+  }, [message])
 
   // Helper function to scroll to bottom
   const scrollToBottom = () => {
@@ -166,6 +193,10 @@ export default function ChatDetail() {
         conversationIdRef.current = chat.id
         chatDataLoaded.current = true
 
+        // Set model state from loaded chat
+        if (chat.provider) setChatProvider(chat.provider)
+        if (chat.model) setChatModel(chat.model)
+
         // If we have an initial message from navigation (New Chat flow),
         // don't overwrite the messages state as sendMessage() is handling it optimistically.
         // The server won't have the messages yet.
@@ -227,6 +258,10 @@ export default function ChatDetail() {
 
     setMessages(prev => [...prev, userMessage])
     setMessage("")
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
     setIsLoading(true)
 
     // Create a new chat if we don't have one
@@ -422,7 +457,8 @@ export default function ChatDetail() {
         let userFriendlyMessage = ''
 
         if (errorMessage.includes('ollama_connection_failed')) {
-          userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${DEFAULT_LLM_MODEL})\n• The server is accessible at ${OLLAMA_BASE_URL}`
+          const modelInfo = chatModel || 'selected model'
+          userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${modelInfo})\n• The server is accessible at ${OLLAMA_BASE_URL}`
         } else if (errorMessage.includes('fetch')) {
           userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python -m backend.main`
         } else {
@@ -446,6 +482,21 @@ export default function ChatDetail() {
   const handleSendMessage = useCallback(() => {
     sendMessage(message)
   }, [message, sendMessage])
+
+  // Handle model change - update chat in database
+  const handleModelChange = useCallback(async (provider: string, model: string) => {
+    setChatProvider(provider)
+    setChatModel(model)
+
+    // If we have a chat ID, persist the model change to the database
+    if (chatId) {
+      try {
+        await chatService.updateChatModel(chatId, provider, model)
+      } catch (error) {
+        console.error('Failed to update chat model:', error)
+      }
+    }
+  }, [chatId])
 
   // Handle initial message from navigation state
   useEffect(() => {
@@ -573,23 +624,50 @@ export default function ChatDetail() {
         </ScrollArea>
       </div>
 
-      {/* Message Input */}
+      {/* Message Input - Unified container */}
       <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex gap-2">
-          <Input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Send a message or paste a YouTube URL..."
-            className="flex-1"
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-          />
-          <Button onClick={handleSendMessage} size="icon" disabled={isLoading}>
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
+        <div className="border border-border rounded-xl bg-card shadow-sm">
+          {/* Textarea area */}
+          <div className="px-3 pt-3 pb-2">
+            <Textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Send a message or paste a YouTube URL..."
+              className="flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none min-h-[24px]"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSendMessage()
+                }
+              }}
+            />
+          </div>
+          {/* Bottom bar with actions and send button */}
+          <div className="flex items-center justify-between px-3 py-2 border-t border-border/50">
+            <div className="flex items-center gap-2">
+              <ModelSelector
+                selectedProvider={chatProvider}
+                selectedModel={chatModel}
+                onChange={handleModelChange}
+                disabled={isLoading}
+                compact
+              />
+            </div>
+            <Button
+              onClick={handleSendMessage}
+              size="icon"
+              disabled={isLoading || !message.trim()}
+              className="rounded-full h-8 w-8"
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
