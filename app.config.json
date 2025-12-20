@@ -65,6 +65,6 @@
   },
   "auth": {
     "enabled": true,
-    "allow_signup": true
+    "allow_signup": false
   }
 }
