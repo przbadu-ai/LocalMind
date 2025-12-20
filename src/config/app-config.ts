@@ -66,6 +66,10 @@ export interface AppConfig {
     enable_mcp: boolean;
     enable_offline_mode: boolean;
   };
+  auth: {
+    enabled: boolean;
+    allow_signup: boolean;
+  };
 }
 
 class ConfigLoader {
@@ -146,6 +150,14 @@ class ConfigLoader {
   get databasePath(): string {
     return this.config.storage.database_path;
   }
+
+  get isAuthEnabled(): boolean {
+    return this.config.auth.enabled;
+  }
+
+  get isSignupAllowed(): boolean {
+    return this.config.auth.allow_signup;
+  }
 }
 
 // Create singleton instance
@@ -163,3 +175,5 @@ export const OLLAMA_PORT = appConfig.ollamaPort;
 export const EMBEDDING_MODEL = appConfig.embeddingModel;
 export const YOUTUBE_ENABLED = appConfig.isYouTubeEnabled;
 export const MCP_ENABLED = appConfig.isMCPEnabled;
+export const AUTH_ENABLED = appConfig.isAuthEnabled;
+export const SIGNUP_ALLOWED = appConfig.isSignupAllowed;
