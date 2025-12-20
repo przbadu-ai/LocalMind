@@ -19,9 +19,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
+  ChevronsUpDown,
   Loader2,
   Plus,
   Trash2,
@@ -37,6 +41,7 @@ import {
   Download,
   Upload,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { API_BASE_URL } from "@/config/app-config"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { VersionInfoDisplay } from "@/components/VersionInfo"
@@ -122,6 +127,7 @@ export default function Settings() {
   const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelSelectOpen, setModelSelectOpen] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [savedProviders, setSavedProviders] = useState<SavedProvider[]>([])
   const [defaultProvider, setDefaultProvider] = useState<string | null>(null)
@@ -653,18 +659,61 @@ export default function Settings() {
                         <div className="grid gap-2">
                           <Label htmlFor="model">Model</Label>
                           <div className="flex gap-2">
-                            <Input
-                              id="model"
-                              value={editedLlm.model}
-                              onChange={(e) => setEditedLlm(prev => ({ ...prev, model: e.target.value }))}
-                              placeholder={PROVIDER_CONFIGS[editedLlm.provider]?.placeholder || "Enter model name"}
-                              list="available-models"
-                            />
-                            <datalist id="available-models">
-                              {availableModels.map((model) => (
-                                <option key={model} value={model} />
-                              ))}
-                            </datalist>
+                            <Popover open={modelSelectOpen} onOpenChange={(open) => {
+                              setModelSelectOpen(open)
+                              if (open && availableModels.length === 0) {
+                                loadAvailableModels()
+                              }
+                            }}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={modelSelectOpen}
+                                  className="flex-1 justify-between"
+                                >
+                                  {editedLlm.model || "Select model..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                <Command>
+                                  <CommandInput placeholder="Search models..." />
+                                  <CommandList>
+                                    {modelsLoading ? (
+                                      <div className="flex items-center justify-center py-6">
+                                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                        <span className="text-sm text-muted-foreground">Loading models...</span>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <CommandEmpty>No model found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {availableModels.map((model) => (
+                                            <CommandItem
+                                              key={model}
+                                              value={model}
+                                              onSelect={(value) => {
+                                                setEditedLlm(prev => ({ ...prev, model: value }))
+                                                setModelSelectOpen(false)
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  editedLlm.model === model ? "opacity-100" : "opacity-0"
+                                                )}
+                                              />
+                                              {model}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </>
+                                    )}
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
                             <Button
                               variant="outline"
                               size="icon"
