@@ -1,0 +1,75 @@
+#!/bin/bash
+#
+# Bump the application version
+#
+# Usage:
+#   ./bin/bump-version patch   # 0.2.0 -> 0.2.1
+#   ./bin/bump-version minor   # 0.2.0 -> 0.3.0
+#   ./bin/bump-version major   # 0.2.0 -> 1.0.0
+#   ./bin/bump-version 1.0.0   # Set specific version
+#
+
+set -e
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION_FILE="$PROJECT_ROOT/VERSION"
+PACKAGE_JSON="$PROJECT_ROOT/package.json"
+
+# Read current version
+CURRENT_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.0.0")
+
+# Parse version components
+IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+
+case "$1" in
+  patch)
+    PATCH=$((PATCH + 1))
+    NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+    ;;
+  minor)
+    MINOR=$((MINOR + 1))
+    PATCH=0
+    NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+    ;;
+  major)
+    MAJOR=$((MAJOR + 1))
+    MINOR=0
+    PATCH=0
+    NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+    ;;
+  "")
+    echo "Usage: $0 [patch|minor|major|VERSION]"
+    echo "Current version: $CURRENT_VERSION"
+    exit 1
+    ;;
+  *)
+    # Assume it's a specific version
+    NEW_VERSION="$1"
+    ;;
+esac
+
+echo "Bumping version: $CURRENT_VERSION -> $NEW_VERSION"
+
+# Update VERSION file
+echo "$NEW_VERSION" > "$VERSION_FILE"
+
+# Update package.json
+if command -v jq &> /dev/null; then
+  jq ".version = \"$NEW_VERSION\"" "$PACKAGE_JSON" > "$PACKAGE_JSON.tmp" && mv "$PACKAGE_JSON.tmp" "$PACKAGE_JSON"
+else
+  # Fallback to sed if jq is not available
+  sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$NEW_VERSION\"/" "$PACKAGE_JSON"
+  rm -f "$PACKAGE_JSON.bak"
+fi
+
+echo "Version updated to $NEW_VERSION"
+echo ""
+echo "Files updated:"
+echo "  - $VERSION_FILE"
+echo "  - $PACKAGE_JSON"
+echo ""
+echo "Next steps:"
+echo "  1. git add VERSION package.json"
+echo "  2. git commit -m \"chore: Bump version to $NEW_VERSION\""
+echo "  3. git tag v$NEW_VERSION"
+echo "  4. git push && git push --tags"

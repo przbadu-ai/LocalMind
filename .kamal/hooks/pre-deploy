@@ -12,9 +12,19 @@ echo "==> Pre-deploy: Building and deploying backend..."
 BACKEND_IMAGE="ghcr.io/przbadu/localmind-backend:latest"
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Build backend image
+# Get version from VERSION file
+APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null || echo "0.0.0-dev")
+GIT_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+echo "==> Version: $APP_VERSION (commit: $GIT_COMMIT)"
+
+# Build backend image with version info
 echo "==> Building backend Docker image..."
-docker build -t "$BACKEND_IMAGE" "$PROJECT_ROOT/backend"
+docker build \
+  --build-arg APP_VERSION="$APP_VERSION" \
+  --build-arg GIT_COMMIT="$GIT_COMMIT" \
+  -t "$BACKEND_IMAGE" \
+  "$PROJECT_ROOT/backend"
 
 # Push backend image
 echo "==> Pushing backend image to registry..."
