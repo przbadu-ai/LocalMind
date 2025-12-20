@@ -11,6 +11,14 @@ echo "==> Pre-build: Setting version info for Docker build..."
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
+# Source .env file if it exists (for auth and other build-time variables)
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    echo "    Loading .env file..."
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
+fi
+
 # Get version from VERSION file
 APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null || echo "0.0.0-dev")
 GIT_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
