@@ -9,6 +9,11 @@ FROM node:20-slim AS builder
 ARG APP_VERSION=0.0.0-dev
 ARG GIT_COMMIT=unknown
 
+# Build arguments for authentication (optional)
+ARG VITE_CLERK_PUBLISHABLE_KEY=""
+ARG AUTH_ENABLED=false
+ARG AUTH_ALLOW_SIGNUP=false
+
 # Install bun
 RUN npm install -g bun
 
@@ -32,26 +37,29 @@ COPY components.json ./
 
 # Create a Docker-specific app.config.json with empty API base URL
 # This allows the frontend to use relative URLs, which nginx proxies to backend
-RUN echo '{ \
-  "app": { "name": "Local Mind", "version": "0.1.0", "description": "AI chat application" }, \
-  "backend": { "host": "0.0.0.0", "port": 52817, "api_base_url": "", "cors_origins": ["*"] }, \
-  "models": { \
-    "embedding": { "default": "all-MiniLM-L6-v2", "options": ["all-MiniLM-L6-v2"] }, \
-    "llm": { \
-      "provider": "ollama", "default_model": "llama3:instruct", \
-      "ollama": { "host": "localhost", "port": 11434, "base_url": "http://localhost:11434", "models": [] }, \
-      "openai": { "base_url": "https://api.openai.com/v1", "models": [] }, \
-      "llamacpp": { "host": "localhost", "port": 8080, "base_url": "http://localhost:8080" } \
+# Auth settings are injected via build args
+RUN echo "{ \
+  \"app\": { \"name\": \"Local Mind\", \"version\": \"0.1.0\", \"description\": \"AI chat application\" }, \
+  \"backend\": { \"host\": \"0.0.0.0\", \"port\": 52817, \"api_base_url\": \"\", \"cors_origins\": [\"*\"] }, \
+  \"models\": { \
+    \"embedding\": { \"default\": \"all-MiniLM-L6-v2\", \"options\": [\"all-MiniLM-L6-v2\"] }, \
+    \"llm\": { \
+      \"provider\": \"ollama\", \"default_model\": \"llama3:instruct\", \
+      \"ollama\": { \"host\": \"localhost\", \"port\": 11434, \"base_url\": \"http://localhost:11434\", \"models\": [] }, \
+      \"openai\": { \"base_url\": \"https://api.openai.com/v1\", \"models\": [] }, \
+      \"llamacpp\": { \"host\": \"localhost\", \"port\": 8080, \"base_url\": \"http://localhost:8080\" } \
     } \
   }, \
-  "storage": { "data_dir": "./data", "database_path": "./data/local_mind.db" }, \
-  "features": { "enable_youtube": true, "enable_mcp": true, "enable_offline_mode": true } \
-}' > app.config.json
+  \"storage\": { \"data_dir\": \"./data\", \"database_path\": \"./data/local_mind.db\" }, \
+  \"features\": { \"enable_youtube\": true, \"enable_mcp\": true, \"enable_offline_mode\": true }, \
+  \"auth\": { \"enabled\": ${AUTH_ENABLED}, \"allow_signup\": ${AUTH_ALLOW_SIGNUP} } \
+}" > app.config.json
 
 # Set version environment variables for Vite build
 ENV VITE_APP_VERSION=${APP_VERSION}
 ENV VITE_GIT_COMMIT=${GIT_COMMIT}
 ENV VITE_BUILD_TIME=${BUILD_TIME}
+ENV VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
 
 # Build the frontend only (web mode, not Tauri)
 RUN bun run build:frontend
