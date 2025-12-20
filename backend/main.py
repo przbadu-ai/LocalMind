@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
     # Auto-start enabled MCP servers
     from services.mcp_service import mcp_service
     enabled_servers = mcp_service.get_enabled_servers()
+    started_count = 0
+    failed_count = 0
     if enabled_servers:
         logger.info(f"Auto-starting {len(enabled_servers)} enabled MCP server(s)...")
         for server in enabled_servers:
@@ -46,10 +48,16 @@ async def lifespan(app: FastAPI):
                 success = await mcp_service.start_server(server.id)
                 if success:
                     logger.info(f"Started MCP server: {server.name}")
+                    started_count += 1
                 else:
                     logger.warning(f"Failed to start MCP server: {server.name}")
+                    failed_count += 1
             except Exception as e:
                 logger.error(f"Error starting MCP server {server.name}: {e}")
+                failed_count += 1
+                # Continue to next server - don't let one failure stop others
+                continue
+        logger.info(f"MCP servers: {started_count} started, {failed_count} failed")
 
     yield
 

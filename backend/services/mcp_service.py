@@ -62,23 +62,29 @@ class MCPServerConnection:
         )
 
         try:
-            # Use the official MCP SDK's stdio_client
-            stdio_transport = await self.exit_stack.enter_async_context(
-                stdio_client(server_params)
+            # Use the official MCP SDK's stdio_client with timeout
+            # This prevents hanging if the server process crashes or hangs during startup
+            stdio_transport = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(stdio_client(server_params)),
+                timeout=30.0
             )
             read_stream, write_stream = stdio_transport
 
-            # Create and initialize session
-            self.session = await self.exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
+            # Create and initialize session with timeout
+            self.session = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(ClientSession(read_stream, write_stream)),
+                timeout=10.0
             )
 
-            # Initialize the MCP session (required handshake)
-            await self.session.initialize()
+            # Initialize the MCP session (required handshake) with timeout
+            await asyncio.wait_for(self.session.initialize(), timeout=30.0)
 
             logger.info(f"Connected to MCP server: {self.server.name}")
             return True
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout connecting to MCP server {self.server.name}")
+            return False
         except Exception as e:
             logger.error(f"Failed to start stdio server {self.server.name}: {e}")
             return False
@@ -101,7 +107,11 @@ class MCPServerConnection:
             return []
 
         try:
-            response = await self.session.list_tools()
+            # Add timeout to prevent hanging
+            response = await asyncio.wait_for(
+                self.session.list_tools(),
+                timeout=30.0
+            )
             tools = []
             for tool in response.tools:
                 tools.append({
@@ -110,7 +120,11 @@ class MCPServerConnection:
                     "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {},
                 })
             self._tools_cache = tools
+            logger.info(f"Listed {len(tools)} tools from {self.server.name}")
             return tools
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout listing tools from {self.server.name}")
+            return []
         except Exception as e:
             logger.error(f"Failed to list tools from {self.server.name}: {e}")
             return []
@@ -120,8 +134,14 @@ class MCPServerConnection:
         if not self.session:
             return {"error": "Server not connected"}
 
+        logger.info(f"Calling tool {tool_name} on {self.server.name} with args: {arguments}")
+
         try:
-            result = await self.session.call_tool(tool_name, arguments)
+            # Add timeout to prevent hanging (60s for tool execution)
+            result = await asyncio.wait_for(
+                self.session.call_tool(tool_name, arguments),
+                timeout=60.0
+            )
 
             # Extract content from the result
             if hasattr(result, 'content') and result.content:
@@ -136,11 +156,16 @@ class MCPServerConnection:
                         contents.append(str(content))
 
                 if len(contents) == 1:
+                    logger.info(f"Tool {tool_name} returned: {contents[0][:200]}...")
                     return contents[0]
+                logger.info(f"Tool {tool_name} returned {len(contents)} content blocks")
                 return contents
 
             return result
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout calling tool {tool_name} on {self.server.name}")
+            return {"error": f"Tool {tool_name} execution timed out after 60s"}
         except Exception as e:
             logger.error(f"Failed to call tool {tool_name} on {self.server.name}: {e}")
             return {"error": str(e)}
@@ -198,7 +223,11 @@ class MCPService:
         return self._server_status.get(server_id, "stopped")
 
     async def start_server(self, server_id: str) -> bool:
-        """Start an MCP server."""
+        """Start an MCP server.
+
+        This method is designed to never crash - it returns False on failure
+        and logs the error, allowing other servers to continue starting.
+        """
         server = self.get_server(server_id)
         if not server:
             logger.error(f"Server {server_id} not found")
@@ -208,6 +237,7 @@ class MCPService:
             logger.info(f"Server {server_id} is already running")
             return True
 
+        conn = None
         try:
             conn = MCPServerConnection(server)
             success = await conn.connect()
@@ -218,12 +248,26 @@ class MCPService:
                 logger.info(f"Started MCP server: {server.name}")
                 return True
             else:
+                # Clean up failed connection
+                if conn:
+                    try:
+                        await conn.disconnect()
+                    except Exception:
+                        pass
                 self._server_status[server_id] = "error: failed to connect"
+                logger.warning(f"MCP server {server.name} failed to start (check server logs above)")
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to start server {server_id}: {e}")
-            self._server_status[server_id] = f"error: {str(e)}"
+            # Clean up on exception
+            if conn:
+                try:
+                    await conn.disconnect()
+                except Exception:
+                    pass
+            error_msg = str(e)
+            logger.error(f"Failed to start server {server.name}: {error_msg}")
+            self._server_status[server_id] = f"error: {error_msg[:100]}"
             return False
 
     async def stop_server(self, server_id: str) -> bool:

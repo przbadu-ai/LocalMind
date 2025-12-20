@@ -1,6 +1,6 @@
 """Chat CRUD API endpoints."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -60,6 +60,17 @@ class ChatWithMessagesResponse(ChatResponse):
     messages: list[dict]
 
 
+class ToolCallResponse(BaseModel):
+    """Response model for a tool call."""
+
+    id: str
+    name: str
+    arguments: dict = {}
+    status: str = "completed"
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+
 class MessageResponse(BaseModel):
     """Response model for a message."""
 
@@ -70,6 +81,7 @@ class MessageResponse(BaseModel):
     created_at: str
     artifact_type: Optional[str] = None
     artifact_data: Optional[dict] = None
+    tool_calls: Optional[list[ToolCallResponse]] = None
 
 
 @router.get("/chats")
@@ -165,6 +177,17 @@ async def get_chat(
                 "created_at": msg.created_at.isoformat(),
                 "artifact_type": msg.artifact_type,
                 "artifact_data": msg.artifact_data,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                        "status": tc.status,
+                        "result": tc.result,
+                        "error": tc.error,
+                    }
+                    for tc in msg.tool_calls
+                ] if msg.tool_calls else None,
             }
             for msg in db_messages
         ]
@@ -271,6 +294,17 @@ async def get_chat_messages(
             created_at=msg.created_at.isoformat(),
             artifact_type=msg.artifact_type,
             artifact_data=msg.artifact_data,
+            tool_calls=[
+                ToolCallResponse(
+                    id=tc.id,
+                    name=tc.name,
+                    arguments=tc.arguments,
+                    status=tc.status,
+                    result=tc.result,
+                    error=tc.error,
+                )
+                for tc in msg.tool_calls
+            ] if msg.tool_calls else None,
         )
         for msg in messages
     ]
