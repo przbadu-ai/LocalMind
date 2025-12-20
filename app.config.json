@@ -62,5 +62,9 @@
     "enable_youtube": true,
     "enable_mcp": true,
     "enable_offline_mode": true
+  },
+  "auth": {
+    "enabled": false,
+    "allow_signup": false
   }
 }
