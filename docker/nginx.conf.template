@@ -62,6 +62,14 @@ server {
         proxy_set_header Host $host;
     }
 
+    # Backend version endpoint proxy
+    location /version {
+        set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
+        proxy_pass http://$backend/version;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
     # Static assets caching
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
