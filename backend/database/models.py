@@ -34,6 +34,17 @@ class ChatTag(BaseModel):
     color: str = "#6B7280"
 
 
+class ToolCallData(BaseModel):
+    """Tool call data for MCP tool executions."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["executing", "completed", "error"] = "completed"
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+
 class Message(BaseModel):
     """Chat message model."""
 
@@ -44,6 +55,7 @@ class Message(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     artifact_type: Optional[Literal["youtube", "pdf", "image"]] = None
     artifact_data: Optional[dict[str, Any]] = None
+    tool_calls: Optional[list[ToolCallData]] = None
 
 
 class TranscriptSegment(BaseModel):

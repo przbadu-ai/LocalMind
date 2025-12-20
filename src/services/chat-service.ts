@@ -24,6 +24,15 @@ export interface Chat {
   provider?: string | null;
 }
 
+export interface ToolCallData {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  status: 'executing' | 'completed' | 'error';
+  result?: unknown;
+  error?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -39,6 +48,7 @@ export interface Message {
     transcript_available?: boolean;
     error?: string;
   };
+  tool_calls?: ToolCallData[];
 }
 
 export interface ChatWithMessages extends Chat {

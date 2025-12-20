@@ -1,10 +1,13 @@
 """LLM service for OpenAI-compatible endpoints."""
 
 import json
+import logging
 from typing import Any, Generator, Optional, Union
 
-from openai import OpenAI
-from pydantic import BaseModel
+from openai import OpenAI # type: ignore
+from pydantic import BaseModel # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class ChatMessage(BaseModel):
@@ -179,7 +182,9 @@ class LLMService:
             request_kwargs["max_tokens"] = max_tokens
         if tools:
             request_kwargs["tools"] = tools
+            request_kwargs["tool_choice"] = "auto"  # Enable automatic tool selection
 
+        logger.info(f"LLM request: model={self.model}, tools={len(tools) if tools else 0}")
         stream = self.client.chat.completions.create(**request_kwargs)
 
         # Track tool calls being accumulated during streaming
@@ -220,15 +225,22 @@ class LLMService:
                             current_tool_calls[idx]["arguments"] += tool_call_delta.function.arguments
 
             # Check for finish reason
-            if chunk.choices[0].finish_reason == "tool_calls":
+            finish_reason = chunk.choices[0].finish_reason
+            if finish_reason:
+                logger.info(f"LLM finish_reason: {finish_reason}")
+
+            if finish_reason == "tool_calls":
                 # Yield all accumulated tool calls
+                logger.info(f"LLM requesting {len(current_tool_calls)} tool call(s)")
                 for idx in sorted(current_tool_calls.keys()):
                     tc = current_tool_calls[idx]
                     try:
                         args = json.loads(tc["arguments"]) if tc["arguments"] else {}
                     except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse tool arguments: {tc['arguments']}")
                         args = {}
 
+                    logger.info(f"  Tool call: {tc['name']} with args: {args}")
                     yield StreamChunk(
                         type="tool_call",
                         tool_call=ToolCall(

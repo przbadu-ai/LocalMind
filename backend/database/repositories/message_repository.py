@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from database.connection import get_db
-from database.models import Message
+from database.models import Message, ToolCallData
 
 
 class MessageRepository:
@@ -13,11 +13,16 @@ class MessageRepository:
 
     def create(self, message: Message) -> Message:
         """Create a new message."""
+        # Serialize tool_calls to JSON
+        tool_calls_json = None
+        if message.tool_calls:
+            tool_calls_json = json.dumps([tc.model_dump() for tc in message.tool_calls])
+
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO messages (id, chat_id, role, content, created_at, artifact_type, artifact_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (id, chat_id, role, content, created_at, artifact_type, artifact_data, tool_calls)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.id,
@@ -27,6 +32,7 @@ class MessageRepository:
                     message.created_at.isoformat(),
                     message.artifact_type,
                     json.dumps(message.artifact_data) if message.artifact_data else None,
+                    tool_calls_json,
                 ),
             )
             conn.commit()
@@ -105,17 +111,23 @@ class MessageRepository:
 
     def update(self, message: Message) -> Message:
         """Update a message."""
+        # Serialize tool_calls to JSON
+        tool_calls_json = None
+        if message.tool_calls:
+            tool_calls_json = json.dumps([tc.model_dump() for tc in message.tool_calls])
+
         with get_db() as conn:
             conn.execute(
                 """
                 UPDATE messages
-                SET content = ?, artifact_type = ?, artifact_data = ?
+                SET content = ?, artifact_type = ?, artifact_data = ?, tool_calls = ?
                 WHERE id = ?
                 """,
                 (
                     message.content,
                     message.artifact_type,
                     json.dumps(message.artifact_data) if message.artifact_data else None,
+                    tool_calls_json,
                     message.id,
                 ),
             )
@@ -157,6 +169,13 @@ class MessageRepository:
         if row["artifact_data"]:
             artifact_data = json.loads(row["artifact_data"])
 
+        # Parse tool_calls from JSON
+        tool_calls = None
+        # Check if tool_calls column exists (may not exist in older databases)
+        if "tool_calls" in row.keys() and row["tool_calls"]:
+            tool_calls_data = json.loads(row["tool_calls"])
+            tool_calls = [ToolCallData(**tc) for tc in tool_calls_data]
+
         return Message(
             id=row["id"],
             chat_id=row["chat_id"],
@@ -165,4 +184,5 @@ class MessageRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             artifact_type=row["artifact_type"],
             artifact_data=artifact_data,
+            tool_calls=tool_calls,
         )

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
@@ -14,7 +14,8 @@ import { chatService, type Chat } from "@/services/chat-service"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
-import { ToolCallDetails, type ToolCallData } from "@/components/ToolCallDetails"
+import { ToolCallAccordion } from "@/components/chat/ToolCallAccordion"
+import type { ToolCall } from "@/types/toolCall"
 
 interface ChatMessage {
   id: string
@@ -28,7 +29,7 @@ interface ChatMessage {
     transcript_available?: boolean
     error?: string
   }
-  toolCalls?: ToolCallData[]
+  toolCalls?: ToolCall[]
 }
 
 interface TranscriptData {
@@ -52,6 +53,11 @@ export default function ChatDetail() {
   const [loadingMessage, setLoadingMessage] = useState("")
   const [errorRetryCount, setErrorRetryCount] = useState(0)
   const [currentChat, setCurrentChat] = useState<Chat | null>(null)
+
+  // Tool execution state
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [isExecutingTools, setIsExecutingTools] = useState(false)
+  const [currentStreamId, setCurrentStreamId] = useState<string | null>(null)
 
   // Model state - derived from chat or user selection
   const [chatProvider, setChatProvider] = useState<string | null>(null)
@@ -90,6 +96,7 @@ export default function ChatDetail() {
   const conversationIdRef = useRef<string>(chatId || "")
   const hasProcessedInitialMessage = useRef(false)
   const chatDataLoaded = useRef(false)
+  const isSubmittingRef = useRef(false) // Guard against double submission
 
   // Auto-grow textarea
   useEffect(() => {
@@ -216,6 +223,7 @@ export default function ChatDetail() {
           }),
           artifactType: msg.artifact_type,
           artifactData: msg.artifact_data,
+          toolCalls: msg.tool_calls,
         }))
 
         setMessages(loadedMessages)
@@ -249,7 +257,9 @@ export default function ChatDetail() {
 
   // Send message function that accepts an optional message parameter
   const sendMessage = useCallback(async (messageToSend: string) => {
-    if (!messageToSend.trim() || isLoading) return
+    // Use ref-based guard to prevent double submission (more reliable than state)
+    if (!messageToSend.trim() || isLoading || isSubmittingRef.current) return
+    isSubmittingRef.current = true
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -287,13 +297,14 @@ export default function ChatDetail() {
     setErrorRetryCount(0)
     requestAnimationFrame(scrollToBottom)
 
-    // Create assistant message placeholder
+    // Create assistant message placeholder with toolCalls initialized
     const assistantMessageId = `msg-${Date.now() + 1}`
     const assistantMessage: ChatMessage = {
       id: assistantMessageId,
       type: 'assistant',
       content: '',
       timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      toolCalls: [], // Initialize empty toolCalls array for tool call updates
     }
 
     setMessages(prev => [...prev, assistantMessage])
@@ -310,6 +321,14 @@ export default function ChatDetail() {
             await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
           }
 
+          // Create abort controller for this request
+          const controller = new AbortController()
+          setAbortController(controller)
+
+          // Generate a unique stream ID for cancellation
+          const streamId = `stream-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          setCurrentStreamId(streamId)
+
           const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
             method: 'POST',
             headers: {
@@ -320,7 +339,9 @@ export default function ChatDetail() {
               conversation_id: conversationIdRef.current,
               temperature: 0.7,
               include_transcript: true,
+              stream_id: streamId,
             }),
+            signal: controller.signal,
           })
 
           if (!response.ok) {
@@ -353,24 +374,35 @@ export default function ChatDetail() {
                         setLoadingMessage("")
                       }
                       fullResponse += data.content
-                      setMessages(prev => prev.map(msg =>
-                        msg.id === assistantMessageId
-                          ? { ...msg, content: fullResponse }
-                          : msg
-                      ))
+                      setMessages(prev => {
+                        // Find or create the assistant message, preserving any existing toolCalls
+                        const existingAssistant = prev.find(m => m.id === assistantMessageId)
+
+                        if (existingAssistant) {
+                          // Update existing message, preserving toolCalls
+                          return prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? { ...msg, content: fullResponse }
+                              : msg
+                          )
+                        } else {
+                          // Need to add messages - this shouldn't normally happen
+                          // as assistantMessage is added before streaming starts
+                          let messages = prev
+                          if (!prev.some(m => m.id === userMessage.id)) {
+                            messages = [...messages, userMessage]
+                          }
+                          return [...messages, { ...assistantMessage, content: fullResponse }]
+                        }
+                      })
                       requestAnimationFrame(scrollToBottom)
                     } else if (data.type === 'youtube_detected') {
-                      console.log('[Debug] YouTube detected event:', data)
                       setCurrentVideoId(data.video_id)
                       setLoadingMessage("Fetching video transcript...")
-                      // Update user message with artifact data - find by the stored userMessage.id
-                      const targetUserMessageId = userMessage.id
-                      setMessages(prev => {
-                        console.log('[Debug] Updating messages for YouTube. Target ID:', targetUserMessageId, 'Messages:', prev.map(m => ({ id: m.id, type: m.type })))
-                        const updated = prev.map(msg => {
-                          if (msg.id === targetUserMessageId) {
-                            console.log('[Debug] Found and updating user message:', msg.id)
-                            return {
+                      // Update user message with artifact data
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === userMessage.id
+                          ? {
                               ...msg,
                               artifactType: 'youtube' as const,
                               artifactData: {
@@ -379,12 +411,8 @@ export default function ChatDetail() {
                                 transcript_available: false,
                               }
                             }
-                          }
-                          return msg
-                        })
-                        console.log('[Debug] Updated messages:', updated.map(m => ({ id: m.id, type: m.type, artifactType: m.artifactType })))
-                        return updated
-                      })
+                          : msg
+                      ))
                     } else if (data.type === 'transcript_status') {
                       if (data.success) {
                         // Fetch transcript immediately when it's ready
@@ -407,47 +435,82 @@ export default function ChatDetail() {
                     } else if (data.type === 'transcript_loading') {
                       setLoadingMessage("Extracting transcript from YouTube...")
                     } else if (data.type === 'llm_starting') {
-                      const toolsMsg = data.tools_available > 0
-                        ? ` (${data.tools_available} tools available)`
-                        : ''
-                      setLoadingMessage(`Generating response...${toolsMsg}`)
+                      setLoadingMessage("Generating response...")
                     } else if (data.type === 'tool_call') {
-                      // Add a new tool call to the current assistant message
-                      const newToolCall: ToolCallData = {
+                      // Add tool call to current assistant message
+                      setIsExecutingTools(true)
+                      setLoadingMessage(`Executing ${data.tool_name}...`)
+
+                      const newToolCall = {
                         id: data.tool_call_id,
                         name: data.tool_name,
                         arguments: data.tool_args || {},
-                        status: 'running',
+                        status: 'executing' as const,
                       }
-                      setLoadingMessage(`Using tool: ${data.tool_name}...`)
-                      setMessages(prev => prev.map(msg =>
-                        msg.id === assistantMessageId
-                          ? {
-                            ...msg,
-                            toolCalls: [...(msg.toolCalls || []), newToolCall],
-                          }
-                          : msg
-                      ))
-                    } else if (data.type === 'tool_result') {
-                      // Update the tool call with its result
-                      const isError = data.result?.error !== undefined
-                      setMessages(prev => prev.map(msg =>
-                        msg.id === assistantMessageId
-                          ? {
-                            ...msg,
-                            toolCalls: (msg.toolCalls || []).map(tc =>
-                              tc.id === data.tool_call_id
-                                ? {
-                                  ...tc,
-                                  result: data.result,
-                                  status: isError ? 'error' as const : 'success' as const,
+
+                      setMessages(prev => {
+                        // Find or create the assistant message
+                        const existingAssistant = prev.find(m => m.id === assistantMessageId)
+
+                        if (existingAssistant) {
+                          // Update existing message with new tool call
+                          return prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? {
+                                  ...msg,
+                                  toolCalls: [...(msg.toolCalls || []), newToolCall]
                                 }
-                                : tc
-                            ),
+                              : msg
+                          )
+                        } else {
+                          // Need to add both user and assistant messages
+                          let messages = prev
+                          if (!prev.some(m => m.id === userMessage.id)) {
+                            messages = [...messages, userMessage]
                           }
-                          : msg
-                      ))
-                      setLoadingMessage("Processing tool result...")
+                          // Add assistant message with the tool call already included
+                          return [...messages, {
+                            ...assistantMessage,
+                            toolCalls: [newToolCall]
+                          }]
+                        }
+                      })
+                      requestAnimationFrame(scrollToBottom)
+                    } else if (data.type === 'tool_result') {
+                      // Update tool call with result
+                      setMessages(prev => {
+                        const existingAssistant = prev.find(m => m.id === assistantMessageId)
+
+                        if (existingAssistant) {
+                          return prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? {
+                                  ...msg,
+                                  toolCalls: msg.toolCalls?.map(tc =>
+                                    tc.id === data.tool_call_id
+                                      ? {
+                                          ...tc,
+                                          status: data.error ? 'error' as const : 'completed' as const,
+                                          result: data.result,
+                                          error: data.error,
+                                        }
+                                      : tc
+                                  )
+                                }
+                              : msg
+                          )
+                        } else {
+                          // This shouldn't happen, but handle gracefully
+                          let messages = prev
+                          if (!prev.some(m => m.id === userMessage.id)) {
+                            messages = [...messages, userMessage]
+                          }
+                          return [...messages, assistantMessage]
+                        }
+                      })
+                      setIsExecutingTools(false)
+                      setLoadingMessage("Generating response...")
+                      requestAnimationFrame(scrollToBottom)
                     } else if (data.type === 'done') {
                       // Update conversation ID if new
                       if (data.conversation_id) {
@@ -459,6 +522,26 @@ export default function ChatDetail() {
                         setCurrentChat(prev => prev ? { ...prev, title: data.title } : prev)
                         window.dispatchEvent(new Event('chats-updated'))
                       }
+                    } else if (data.type === 'cancelled') {
+                      // Stream was cancelled by user - update any executing tools
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === assistantMessageId && msg.toolCalls
+                          ? {
+                              ...msg,
+                              toolCalls: msg.toolCalls.map(tc =>
+                                tc.status === 'executing'
+                                  ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
+                                  : tc
+                              )
+                            }
+                          : msg
+                      ))
+                      setIsExecutingTools(false)
+                      setCurrentStreamId(null)
+                      setIsLoading(false)
+                      setLoadingMessage("")
+                      isSubmittingRef.current = false
+                      return
                     } else if (data.type === 'error') {
                       if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {
                         throw new Error('ollama_connection_failed')
@@ -478,12 +561,38 @@ export default function ChatDetail() {
 
           // Success - break out of retry loop
           setLoadingMessage("")
+          setIsExecutingTools(false)
+          setAbortController(null)
+          setCurrentStreamId(null)
           requestAnimationFrame(() => {
             requestAnimationFrame(scrollToBottom)
           })
           break
 
         } catch (error) {
+          // Handle user abort
+          if (error instanceof Error && error.name === 'AbortError') {
+            // User cancelled - update executing tool calls to show stopped
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantMessageId && msg.toolCalls
+                ? {
+                    ...msg,
+                    toolCalls: msg.toolCalls.map(tc =>
+                      tc.status === 'executing'
+                        ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
+                        : tc
+                    )
+                  }
+                : msg
+            ))
+            setIsExecutingTools(false)
+            setAbortController(null)
+            setIsLoading(false)
+            setLoadingMessage("")
+            isSubmittingRef.current = false
+            return // Exit the function entirely, don't retry
+          }
+
           lastError = error
           retryCount++
 
@@ -517,6 +626,7 @@ export default function ChatDetail() {
     } finally {
       setIsLoading(false)
       setLoadingMessage("")
+      isSubmittingRef.current = false // Reset submission guard
     }
   }, [isLoading, fetchTranscript, setTitle])
 
@@ -586,6 +696,10 @@ export default function ChatDetail() {
           <div className="space-y-6">
             {messages.map((msg) => (
               <div key={msg.id} className="space-y-3">
+                {/* Tool calls appear ABOVE assistant message content */}
+                {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <ToolCallAccordion toolCalls={msg.toolCalls} />
+                )}
                 <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
                     ? 'bg-muted text-muted-foreground'
@@ -631,11 +745,6 @@ export default function ChatDetail() {
                       </>
                     )}
                     <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
-
-                    {/* Tool calls display for assistant messages */}
-                    {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                      <ToolCallDetails toolCalls={msg.toolCalls} />
-                    )}
                   </div>
                 </div>
 
@@ -702,18 +811,49 @@ export default function ChatDetail() {
                 compact
               />
             </div>
-            <Button
-              onClick={handleSendMessage}
-              size="icon"
-              disabled={isLoading || !message.trim()}
-              className="rounded-full h-8 w-8"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
+            <div className="flex items-center gap-2">
+              {(isLoading || isExecutingTools) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={async () => {
+                    // Send cancel request to backend
+                    if (currentStreamId) {
+                      try {
+                        await fetch(`${API_BASE_URL}/api/v1/chat/cancel`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ stream_id: currentStreamId }),
+                        })
+                      } catch (e) {
+                        console.error('Failed to cancel stream:', e)
+                      }
+                    }
+                    // Also abort the fetch request
+                    abortController?.abort()
+                    setIsExecutingTools(false)
+                    setAbortController(null)
+                    setCurrentStreamId(null)
+                  }}
+                  className="flex items-center gap-1 h-8"
+                >
+                  <Square className="h-3 w-3" />
+                  Stop
+                </Button>
               )}
-            </Button>
+              <Button
+                onClick={handleSendMessage}
+                size="icon"
+                disabled={isLoading || !message.trim()}
+                className="rounded-full h-8 w-8"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

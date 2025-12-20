@@ -4,16 +4,19 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from agents.title_agent import generate_chat_title
-from database.models import Chat, Message
+from database.models import Chat, Message, ToolCallData
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
+from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
+from services.mcp_service import mcp_service
 from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
@@ -26,6 +29,9 @@ chat_repo = ChatRepository()
 message_repo = MessageRepository()
 config_repo = ConfigRepository()
 
+# Track active streams for cancellation
+active_streams: dict[str, asyncio.Event] = {}
+
 
 class ChatStreamRequest(BaseModel):
     """Request body for streaming chat."""
@@ -37,6 +43,14 @@ class ChatStreamRequest(BaseModel):
     # Optional per-chat model override
     provider: Optional[str] = None
     model: Optional[str] = None
+    # Stream ID for cancellation support
+    stream_id: Optional[str] = None
+
+
+class CancelStreamRequest(BaseModel):
+    """Request body for cancelling a stream."""
+
+    stream_id: str
 
 
 def get_llm_service_for_chat(chat: Optional[Chat]) -> LLMService:
@@ -63,8 +77,14 @@ async def stream_chat_response(
     conversation_id: Optional[str],
     temperature: float,
     include_transcript: bool,
+    stream_id: Optional[str] = None,
 ):
     """Generate streaming chat response."""
+    # Set up cancellation event
+    cancel_event = asyncio.Event()
+    if stream_id:
+        active_streams[stream_id] = cancel_event
+
     try:
         # Check for YouTube URLs in the message
         youtube_urls = find_youtube_urls(message)
@@ -221,10 +241,42 @@ Based on this transcript, provide a helpful, structured response. If this is the
             mcp_tools, tool_to_server = await mcp_service.get_all_tools_as_openai_format()
             if mcp_tools:
                 logger.info(f"Loaded {len(mcp_tools)} MCP tools for chat")
+                for tool in mcp_tools:
+                    logger.debug(f"  Tool: {tool['function']['name']}")
         except Exception as e:
             logger.warning(f"Failed to load MCP tools: {e}")
 
+        # Add tool descriptions to system prompt so LLM knows about available tools
+        if mcp_tools:
+            tool_descriptions = []
+            for tool in mcp_tools:
+                # Remove server prefix for cleaner display (e.g., "Time__get_current_time" -> "get_current_time")
+                full_name = tool["function"]["name"]
+                display_name = full_name.split("__")[-1] if "__" in full_name else full_name
+                desc = tool["function"].get("description", "No description")
+                tool_descriptions.append(f"- **{display_name}**: {desc}")
+
+            tools_section = f"""
+
+## Available Tools
+You have access to the following tools. Use them when you need real-time or accurate information:
+
+{chr(10).join(tool_descriptions)}
+
+**IMPORTANT TOOL USAGE RULES**:
+1. When asked about current time, dates, web searches, or other real-time information, call the appropriate tool ONCE.
+2. After receiving a tool result, IMMEDIATELY use that result to formulate your response. Do NOT call the same tool again.
+3. Each tool call gives you accurate, real-time data. Trust the result and respond to the user.
+4. If a tool returns an error, explain the issue to the user instead of retrying."""
+
+            # Update the system message to include tools
+            context_messages[0] = ChatMessage(
+                role="system",
+                content=context_messages[0].content + tools_section
+            )
+
         # Notify frontend that LLM is starting
+        tool_names = [t["function"]["name"] for t in mcp_tools] if mcp_tools else []
         yield {
             "event": "message",
             "data": json.dumps({
@@ -232,50 +284,77 @@ Based on this transcript, provide a helpful, structured response. If this is the
                 "model": chat_llm_service.model,
                 "provider": chat.provider if chat else None,
                 "tools_available": len(mcp_tools),
+                "tool_names": tool_names,  # Debug: show which tools are available
             }),
         }
 
+        # Stream LLM response with tool execution loop
         # Stream LLM response with tool execution loop
         full_response = ""
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
 
         try:
-            # Tool execution loop - may run multiple times if LLM calls tools
-            max_tool_iterations = 10  # Prevent infinite loops
-            iteration = 0
+            # Single pass - either stream content OR execute tools (not both in a loop)
+            pending_tool_calls: list[ToolCall] = []
 
-            while iteration < max_tool_iterations:
-                iteration += 1
-                pending_tool_calls: list[ToolCall] = []
-                iteration_content = ""
+            # Stream the LLM response
+            for chunk in chat_llm_service.chat_stream(
+                context_messages,
+                temperature=temperature,
+                tools=mcp_tools if mcp_tools else None,
+            ):
+                # Check for cancellation
+                if cancel_event.is_set():
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "cancelled",
+                            "message": "Stream cancelled by user",
+                        }),
+                    }
+                    return
 
-                # Stream the LLM response
-                for chunk in chat_llm_service.chat_stream(
-                    context_messages,
-                    temperature=temperature,
-                    tools=mcp_tools if mcp_tools else None,
-                ):
-                    if chunk.type == "content" and chunk.content:
-                        iteration_content += chunk.content
-                        full_response += chunk.content
+                if chunk.type == "content" and chunk.content:
+                    full_response += chunk.content
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "content",
+                            "content": chunk.content,
+                        }),
+                    }
+                elif chunk.type == "tool_call" and chunk.tool_call:
+                    pending_tool_calls.append(chunk.tool_call)
+                elif chunk.type == "done":
+                    break
+
+            # Execute any tool calls that were requested
+            if pending_tool_calls:
+                # Check for cancellation before tool execution
+                if cancel_event.is_set():
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "cancelled",
+                            "message": "Stream cancelled by user",
+                        }),
+                    }
+                    return
+
+                tool_results_for_response: list[str] = []
+
+                for tool_call in pending_tool_calls:
+                    # Check for cancellation before each tool
+                    if cancel_event.is_set():
                         yield {
                             "event": "message",
                             "data": json.dumps({
-                                "type": "content",
-                                "content": chunk.content,
+                                "type": "cancelled",
+                                "message": "Stream cancelled by user",
                             }),
                         }
-                    elif chunk.type == "tool_call" and chunk.tool_call:
-                        pending_tool_calls.append(chunk.tool_call)
-                    elif chunk.type == "done":
-                        break
+                        return
 
-                # If no tool calls, we're done
-                if not pending_tool_calls:
-                    break
-
-                # Execute tool calls
-                for tool_call in pending_tool_calls:
                     # Parse the prefixed tool name
                     _, original_tool_name = mcp_service.parse_tool_name(tool_call.name)
                     server_id = tool_to_server.get(tool_call.name, "")
@@ -324,29 +403,63 @@ Based on this transcript, provide a helpful, structured response. If this is the
                         "result": tool_result,
                     })
 
-                    # Add assistant message with tool call to context
-                    context_messages.append(ChatMessage(
-                        role="assistant",
-                        content=iteration_content or "",
-                        tool_calls=[{
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_call.name,
-                                "arguments": json.dumps(tool_call.arguments),
-                            },
-                        }],
-                    ))
-
-                    # Add tool result to context
+                    # Collect result for building response
                     result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+                    tool_results_for_response.append(f"Tool {original_tool_name} result: {result_str}")
+
+                # Build context with tool results for final response
+                context_messages.append(ChatMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=[{
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    } for tc in pending_tool_calls],
+                ))
+
+                # Add all tool results to context
+                for i, tool_call in enumerate(pending_tool_calls):
+                    result_str = json.dumps(all_tool_calls[i]["result"]) if isinstance(all_tool_calls[i]["result"], dict) else str(all_tool_calls[i]["result"])
                     context_messages.append(ChatMessage(
                         role="tool",
                         content=result_str,
                         tool_call_id=tool_call.id,
                     ))
 
-                # Continue loop to get LLM's response to tool results
+                # Call LLM again with tool results to generate a natural language response
+                # The LLM will use the tool results to formulate a helpful answer
+                logger.info("Calling LLM again with tool results to generate final response")
+                for chunk in chat_llm_service.chat_stream(
+                    context_messages,
+                    temperature=temperature,
+                    tools=None,  # Don't offer tools on the follow-up call
+                ):
+                    # Check for cancellation
+                    if cancel_event.is_set():
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "cancelled",
+                                "message": "Stream cancelled by user",
+                            }),
+                        }
+                        return
+
+                    if chunk.type == "content" and chunk.content:
+                        full_response += chunk.content
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "content",
+                                "content": chunk.content,
+                            }),
+                        }
+                    elif chunk.type == "done":
+                        break
 
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
@@ -369,12 +482,28 @@ Based on this transcript, provide a helpful, structured response. If this is the
                 }
             return
 
-        # Save assistant message
-        if full_response:
+        # Save assistant message with tool calls
+        if full_response or all_tool_calls:
+            # Convert tool calls to ToolCallData models
+            tool_calls_data = None
+            if all_tool_calls:
+                tool_calls_data = [
+                    ToolCallData(
+                        id=tc["id"],
+                        name=tc["name"],
+                        arguments=tc["arguments"],
+                        status="completed",
+                        result=tc.get("result"),
+                        error=tc.get("error"),
+                    )
+                    for tc in all_tool_calls
+                ]
+
             assistant_message = Message(
                 chat_id=conversation_id,
                 role="assistant",
                 content=full_response,
+                tool_calls=tool_calls_data,
             )
             message_repo.create(assistant_message)
 
@@ -420,6 +549,10 @@ Based on this transcript, provide a helpful, structured response. If this is the
                 "error": str(e),
             }),
         }
+    finally:
+        # Clean up stream tracking
+        if stream_id and stream_id in active_streams:
+            del active_streams[stream_id]
 
 
 @router.post("/chat/stream")
@@ -431,6 +564,17 @@ async def chat_stream(request: ChatStreamRequest):
             conversation_id=request.conversation_id,
             temperature=request.temperature,
             include_transcript=request.include_transcript,
+            stream_id=request.stream_id,
         ),
         media_type="text/event-stream",
     )
+
+
+@router.post("/chat/cancel")
+async def cancel_stream(request: CancelStreamRequest):
+    """Cancel an active chat stream."""
+    stream_id = request.stream_id
+    if stream_id in active_streams:
+        active_streams[stream_id].set()
+        return {"success": True, "message": "Stream cancellation requested"}
+    return {"success": False, "message": "Stream not found or already completed"}
