@@ -1,0 +1,32 @@
+#!/bin/bash
+#
+# LocalMind Deployment Script
+#
+# This is a convenience wrapper around `kamal deploy`.
+# The actual deployment logic is in .kamal/hooks/pre-deploy
+#
+# Usage: ./bin/deploy
+#
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "╔════════════════════════════════════════╗"
+echo "║     LocalMind Deployment               ║"
+echo "╚════════════════════════════════════════╝"
+echo ""
+echo "Running kamal deploy..."
+echo "This will:"
+echo "  1. Build and push backend image (pre-deploy hook)"
+echo "  2. Deploy backend container"
+echo "  3. Build and push frontend image"
+echo "  4. Deploy frontend container"
+echo ""
+
+kamal deploy
+
+echo ""
+echo "✓ Deployment complete!"
+echo "  Frontend: http://192.168.1.173"
+echo "  Backend:  http://192.168.1.173:8001"

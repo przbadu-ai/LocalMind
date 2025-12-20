@@ -133,6 +133,114 @@ illuminate/
 - Preference for open-source, privacy-focused solutions
 - Building for community contribution, not proprietary development
 
+## Deployment Strategy
+
+### Dual Deployment Architecture
+LocalMind supports **two deployment modes** for different use cases:
+
+#### 1. Desktop Application (Primary/End-User)
+**Purpose**: Offline-first, privacy-focused native desktop application
+
+**Distribution**:
+- Multi-platform Tauri bundles (Windows `.msi`, Linux `.deb`/`.AppImage`, macOS `.dmg`)
+- GitHub Releases for public distribution
+- Open source under Apache 2.0 License
+
+**Build Configuration**:
+- File: `src-tauri/tauri.conf.json`
+- Product name: `local-mind`
+- Identifier: `com.przbadu.local-mind`
+- Version: `0.1.0`
+
+**Build Commands**:
+```bash
+# Development
+bun run tauri dev
+
+# Production build
+bun run tauri build
+```
+
+**Planned CI/CD**: GitHub Actions for automated multi-platform builds
+
+#### 2. Web Application (Server/Development)
+**Purpose**: Dockerized web deployment for server hosting or team access
+
+**Deployment Methods**:
+
+##### Kamal Deployment (Production)
+- **File**: `config/deploy.yml`
+- **Registry**: GitHub Container Registry (`ghcr.io/przbadu/localmind`)
+- **Target Server**: `192.168.1.173` (LAN deployment)
+- **Services**:
+  - Frontend: nginx serving React app (port 80)
+  - Backend: Python FastAPI (port 8001)
+- **Volumes**: `/var/data/localmind` for persistent storage
+
+**Deployment - Just one command:**
+```bash
+kamal deploy    # Deploys BOTH frontend and backend
+```
+
+The pre-deploy hook (`.kamal/hooks/pre-deploy`) automatically:
+1. Builds the backend Docker image
+2. Pushes it to the registry
+3. Deploys and restarts the backend container
+4. Waits for health check
+5. Then Kamal deploys the frontend
+
+**Other Kamal commands:**
+```bash
+kamal setup      # Initial deployment (first time only)
+kamal app logs   # View frontend logs
+kamal rollback   # Rollback frontend to previous version
+```
+
+**View backend logs:**
+```bash
+ssh root@192.168.1.173 "docker logs localmind-backend --tail 100"
+```
+
+##### Docker Compose (Local Development)
+- **File**: `docker-compose.yml`
+- **Services**:
+  - Frontend: `http://localhost:3000`
+  - Backend: `http://localhost:52817`
+- **Features**: Health checks, auto-restart, persistent volumes
+- **Commands**:
+  ```bash
+  docker-compose up -d      # Start services
+  docker-compose down       # Stop services
+  docker-compose logs -f    # View logs
+  ```
+
+##### Docker Configuration Details
+- **Frontend Dockerfile**: Multi-stage build with nginx
+  - Build command: `bun run build:frontend` (excludes Tauri)
+  - Uses `docker/nginx.conf.template` for dynamic backend routing
+  - Environment vars: `BACKEND_HOST`, `BACKEND_PORT`
+- **Backend Dockerfile**: Python FastAPI with uvicorn
+  - Mounts `app.config.json` for configuration
+  - Accesses host Ollama via `host.docker.internal:11434`
+  - Database persists at `/app/data/local_mind.db`
+
+### Key Architectural Differences
+
+| Aspect | Desktop (Tauri) | Web (Docker) |
+|--------|----------------|--------------|
+| **Offline** | Fully offline | Requires network for LLM |
+| **Database** | Local SQLite | Shared/persistent volume |
+| **Distribution** | Download & install | Access via browser |
+| **Updates** | Manual/auto-update | Deploy via Kamal/compose |
+| **Privacy** | 100% local | Server-hosted |
+| **Target Users** | Privacy-focused individuals | Teams/multi-user access |
+
+### Deployment Environment
+- **LLM Server**: Ollama at `192.168.1.173:11434`
+- **Backend Port**: `52817` (development), `8001` (Kamal production)
+- **Frontend Port**: `1420` (dev), `3000` (Docker Compose), `80` (Kamal)
+- **Data Persistence**: `/var/data/localmind` (production server)
+
 ## Configuration Management
 
 ### Centralized Configuration System
