@@ -123,42 +123,66 @@ In `app.config.json`:
 
 Users will see both "Sign in" and "Sign up" options.
 
-## Docker/Kamal Deployment
+## Deployment
 
-When deploying with Docker or Kamal, pass the environment variable:
+Authentication settings are passed as **build arguments** because Vite embeds environment variables at build time. This is already configured in the Dockerfile and deployment scripts.
 
 ### Docker Compose
 
-Add to `docker-compose.yml`:
+1. Create or update your `.env` file:
 
-```yaml
-services:
-  frontend:
-    environment:
-      - VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
+```bash
+# Enable authentication
+VITE_CLERK_PUBLISHABLE_KEY=pk_live_your_production_key
+AUTH_ENABLED=true
+AUTH_ALLOW_SIGNUP=false  # or true for public registration
 ```
 
-Then set in `.env`:
+2. Build and run:
+
+```bash
+docker-compose build --no-cache  # Rebuild to apply auth settings
+docker-compose up -d
+```
+
+The `docker-compose.yml` automatically passes these as build args:
+- `VITE_CLERK_PUBLISHABLE_KEY` - Your Clerk publishable key
+- `AUTH_ENABLED` - Enable/disable authentication
+- `AUTH_ALLOW_SIGNUP` - Allow new user registration
+
+### Kamal Deployment
+
+1. Add to your `.env` file:
 
 ```bash
 VITE_CLERK_PUBLISHABLE_KEY=pk_live_your_production_key
+AUTH_ALLOW_SIGNUP=false  # or true for public registration
 ```
 
-### Kamal
-
-Add to `.kamal/secrets`:
+2. Deploy:
 
 ```bash
-VITE_CLERK_PUBLISHABLE_KEY=pk_live_your_production_key
+kamal deploy
 ```
 
-Update `config/deploy.yml` to include the secret:
+The pre-build hook automatically:
+- Detects if `VITE_CLERK_PUBLISHABLE_KEY` is set
+- Sets `AUTH_ENABLED=true` when the key is present
+- Passes `AUTH_ALLOW_SIGNUP` based on your .env setting
 
-```yaml
-env:
-  secret:
-    - VITE_CLERK_PUBLISHABLE_KEY
+**Note:** If you don't set `VITE_CLERK_PUBLISHABLE_KEY`, authentication is automatically disabled.
+
+### Disabling Authentication in Deployment
+
+Simply leave `VITE_CLERK_PUBLISHABLE_KEY` empty or unset:
+
+```bash
+# No authentication
+VITE_CLERK_PUBLISHABLE_KEY=
+AUTH_ENABLED=false
 ```
+
+Or remove these variables entirely from your `.env` file.
 
 ## Troubleshooting
 

@@ -6,6 +6,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Authentication (optional) - set in .env file
+        - VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY:-}
+        - AUTH_ENABLED=${AUTH_ENABLED:-false}
+        - AUTH_ALLOW_SIGNUP=${AUTH_ALLOW_SIGNUP:-false}
     ports:
       - "3000:80"
     environment:
