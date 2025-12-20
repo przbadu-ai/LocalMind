@@ -67,13 +67,11 @@ volumes:
 # This ensures the backend image is always built and deployed with the frontend
 
 # Build configuration
+# Build args (APP_VERSION, GIT_COMMIT) are set by .kamal/hooks/pre-build
 builder:
   arch: amd64
   # Uncomment for multi-arch builds:
   # multiarch: true
-  args:
-    APP_VERSION: $(cat VERSION 2>/dev/null || echo "0.0.0-dev")
-    GIT_COMMIT: $(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # Logging configuration (disable log-opt for journald compatibility)
 logging:

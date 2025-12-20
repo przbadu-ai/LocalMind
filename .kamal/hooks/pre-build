@@ -1,0 +1,23 @@
+#!/bin/bash
+#
+# Kamal pre-build hook
+# This runs before the Docker image build
+# It sets version info as build arguments for the Docker build
+#
+
+set -e
+
+echo "==> Pre-build: Setting version info for Docker build..."
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Get version from VERSION file
+APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null || echo "0.0.0-dev")
+GIT_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+echo "    APP_VERSION=$APP_VERSION"
+echo "    GIT_COMMIT=$GIT_COMMIT"
+
+# Export build args for Kamal's Docker build
+# Kamal reads KAMAL_BUILD_ARGS to pass to docker build
+export KAMAL_BUILD_ARGS="APP_VERSION=$APP_VERSION GIT_COMMIT=$GIT_COMMIT"

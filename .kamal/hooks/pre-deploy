@@ -39,9 +39,10 @@ ssh root@192.168.1.173 "
   docker stop localmind-backend 2>/dev/null || true
   docker rm localmind-backend 2>/dev/null || true
 
-  # Start new container
+  # Start new container on Kamal's network so frontend can reach it by hostname
   docker run -d \
     --name localmind-backend \
+    --network kamal \
     --restart unless-stopped \
     --add-host host.docker.internal:host-gateway \
     -p 8001:8001 \

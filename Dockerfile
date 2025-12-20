@@ -70,7 +70,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Environment variables for backend configuration
 # These can be overridden at runtime
 ENV BACKEND_HOST=localmind-backend
-ENV BACKEND_PORT=52817
+ENV BACKEND_PORT=8001
 
 # Expose port
 EXPOSE 80
