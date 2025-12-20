@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,7 +14,8 @@ from database.models import Chat, Message
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
-from services.llm_service import ChatMessage, LLMService, llm_service
+from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
+from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
 from utils.youtube_utils import find_youtube_urls
 
@@ -213,6 +214,16 @@ Based on this transcript, provide a helpful, structured response. If this is the
         # Get the appropriate LLM service for this chat (may be per-chat model)
         chat_llm_service = get_llm_service_for_chat(chat)
 
+        # Fetch MCP tools from enabled servers
+        mcp_tools: list[dict[str, Any]] = []
+        tool_to_server: dict[str, str] = {}
+        try:
+            mcp_tools, tool_to_server = await mcp_service.get_all_tools_as_openai_format()
+            if mcp_tools:
+                logger.info(f"Loaded {len(mcp_tools)} MCP tools for chat")
+        except Exception as e:
+            logger.warning(f"Failed to load MCP tools: {e}")
+
         # Notify frontend that LLM is starting
         yield {
             "event": "message",
@@ -220,21 +231,123 @@ Based on this transcript, provide a helpful, structured response. If this is the
                 "type": "llm_starting",
                 "model": chat_llm_service.model,
                 "provider": chat.provider if chat else None,
+                "tools_available": len(mcp_tools),
             }),
         }
 
-        # Stream LLM response
+        # Stream LLM response with tool execution loop
         full_response = ""
+        all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
+
         try:
-            for chunk in chat_llm_service.chat_stream(context_messages, temperature=temperature):
-                full_response += chunk
-                yield {
-                    "event": "message",
-                    "data": json.dumps({
-                        "type": "content",
-                        "content": chunk,
-                    }),
-                }
+            # Tool execution loop - may run multiple times if LLM calls tools
+            max_tool_iterations = 10  # Prevent infinite loops
+            iteration = 0
+
+            while iteration < max_tool_iterations:
+                iteration += 1
+                pending_tool_calls: list[ToolCall] = []
+                iteration_content = ""
+
+                # Stream the LLM response
+                for chunk in chat_llm_service.chat_stream(
+                    context_messages,
+                    temperature=temperature,
+                    tools=mcp_tools if mcp_tools else None,
+                ):
+                    if chunk.type == "content" and chunk.content:
+                        iteration_content += chunk.content
+                        full_response += chunk.content
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "content",
+                                "content": chunk.content,
+                            }),
+                        }
+                    elif chunk.type == "tool_call" and chunk.tool_call:
+                        pending_tool_calls.append(chunk.tool_call)
+                    elif chunk.type == "done":
+                        break
+
+                # If no tool calls, we're done
+                if not pending_tool_calls:
+                    break
+
+                # Execute tool calls
+                for tool_call in pending_tool_calls:
+                    # Parse the prefixed tool name
+                    _, original_tool_name = mcp_service.parse_tool_name(tool_call.name)
+                    server_id = tool_to_server.get(tool_call.name, "")
+
+                    # Notify frontend about tool call
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "tool_call",
+                            "tool_call_id": tool_call.id,
+                            "tool_name": original_tool_name,
+                            "tool_args": tool_call.arguments,
+                            "server_id": server_id,
+                        }),
+                    }
+
+                    # Execute the tool
+                    tool_result: Any = {"error": "Tool execution failed"}
+                    try:
+                        if server_id:
+                            tool_result = await mcp_service.call_tool(
+                                server_id, original_tool_name, tool_call.arguments
+                            )
+                        else:
+                            tool_result = {"error": f"No server found for tool {tool_call.name}"}
+                    except Exception as e:
+                        logger.error(f"Tool execution error: {e}")
+                        tool_result = {"error": str(e)}
+
+                    # Notify frontend about tool result
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "tool_result",
+                            "tool_call_id": tool_call.id,
+                            "tool_name": original_tool_name,
+                            "result": tool_result,
+                        }),
+                    }
+
+                    # Track tool call for the response
+                    all_tool_calls.append({
+                        "id": tool_call.id,
+                        "name": original_tool_name,
+                        "arguments": tool_call.arguments,
+                        "result": tool_result,
+                    })
+
+                    # Add assistant message with tool call to context
+                    context_messages.append(ChatMessage(
+                        role="assistant",
+                        content=iteration_content or "",
+                        tool_calls=[{
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.name,
+                                "arguments": json.dumps(tool_call.arguments),
+                            },
+                        }],
+                    ))
+
+                    # Add tool result to context
+                    result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+                    context_messages.append(ChatMessage(
+                        role="tool",
+                        content=result_str,
+                        tool_call_id=tool_call.id,
+                    ))
+
+                # Continue loop to get LLM's response to tool results
+
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             error_msg = str(e)

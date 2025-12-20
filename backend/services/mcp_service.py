@@ -307,6 +307,105 @@ class MCPService:
 
         return json.dumps(config, indent=2)
 
+    async def get_all_tools_as_openai_format(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        """Get all tools from enabled/running MCP servers in OpenAI function format.
+
+        Returns:
+            Tuple of (tools_list, tool_to_server_map) where:
+            - tools_list: List of tools in OpenAI function format
+            - tool_to_server_map: Dict mapping tool name to server_id
+        """
+        all_tools: list[dict[str, Any]] = []
+        tool_to_server: dict[str, str] = {}
+
+        # Get enabled servers
+        enabled_servers = self.get_enabled_servers()
+
+        for server in enabled_servers:
+            # Only include tools from running stdio servers or SSE servers
+            if server.transport_type == "stdio" and not self.is_server_running(server.id):
+                continue
+
+            try:
+                tools = await self.list_tools(server.id)
+                for tool in tools:
+                    # Convert MCP tool to OpenAI function format
+                    openai_tool = self._convert_mcp_tool_to_openai(tool, server.name)
+                    if openai_tool:
+                        all_tools.append(openai_tool)
+                        # Use prefixed name for mapping
+                        tool_name = openai_tool["function"]["name"]
+                        tool_to_server[tool_name] = server.id
+            except Exception as e:
+                logger.warning(f"Failed to get tools from server {server.name}: {e}")
+
+        return all_tools, tool_to_server
+
+    def _convert_mcp_tool_to_openai(
+        self, mcp_tool: dict[str, Any], server_name: str
+    ) -> Optional[dict[str, Any]]:
+        """Convert an MCP tool definition to OpenAI function format.
+
+        Args:
+            mcp_tool: MCP tool definition with name, description, inputSchema
+            server_name: Name of the server providing this tool (for prefixing)
+
+        Returns:
+            OpenAI function tool definition or None if conversion fails
+        """
+        try:
+            tool_name = mcp_tool.get("name")
+            if not tool_name:
+                return None
+
+            # Prefix tool name with server name to avoid collisions
+            prefixed_name = f"{server_name}__{tool_name}"
+
+            # Build OpenAI function definition
+            function_def: dict[str, Any] = {
+                "name": prefixed_name,
+                "description": mcp_tool.get("description", f"Tool from {server_name}"),
+            }
+
+            # Convert input schema
+            input_schema = mcp_tool.get("inputSchema", mcp_tool.get("input_schema", {}))
+            if input_schema:
+                # OpenAI expects parameters in specific format
+                function_def["parameters"] = {
+                    "type": input_schema.get("type", "object"),
+                    "properties": input_schema.get("properties", {}),
+                    "required": input_schema.get("required", []),
+                }
+            else:
+                # Empty parameters
+                function_def["parameters"] = {
+                    "type": "object",
+                    "properties": {},
+                }
+
+            return {
+                "type": "function",
+                "function": function_def,
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to convert MCP tool to OpenAI format: {e}")
+            return None
+
+    def parse_tool_name(self, prefixed_name: str) -> tuple[str, str]:
+        """Parse a prefixed tool name back to server_name and tool_name.
+
+        Args:
+            prefixed_name: Tool name in format "server_name__tool_name"
+
+        Returns:
+            Tuple of (server_name, tool_name)
+        """
+        if "__" in prefixed_name:
+            parts = prefixed_name.split("__", 1)
+            return parts[0], parts[1]
+        return "", prefixed_name
+
 
 # Global MCP service instance
 mcp_service = MCPService()

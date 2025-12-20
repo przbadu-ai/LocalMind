@@ -14,6 +14,7 @@ import { chatService, type Chat } from "@/services/chat-service"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
+import { ToolCallDetails, type ToolCallData } from "@/components/ToolCallDetails"
 
 interface ChatMessage {
   id: string
@@ -27,6 +28,7 @@ interface ChatMessage {
     transcript_available?: boolean
     error?: string
   }
+  toolCalls?: ToolCallData[]
 }
 
 interface TranscriptData {
@@ -405,7 +407,47 @@ export default function ChatDetail() {
                     } else if (data.type === 'transcript_loading') {
                       setLoadingMessage("Extracting transcript from YouTube...")
                     } else if (data.type === 'llm_starting') {
-                      setLoadingMessage("Generating response...")
+                      const toolsMsg = data.tools_available > 0
+                        ? ` (${data.tools_available} tools available)`
+                        : ''
+                      setLoadingMessage(`Generating response...${toolsMsg}`)
+                    } else if (data.type === 'tool_call') {
+                      // Add a new tool call to the current assistant message
+                      const newToolCall: ToolCallData = {
+                        id: data.tool_call_id,
+                        name: data.tool_name,
+                        arguments: data.tool_args || {},
+                        status: 'running',
+                      }
+                      setLoadingMessage(`Using tool: ${data.tool_name}...`)
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === assistantMessageId
+                          ? {
+                            ...msg,
+                            toolCalls: [...(msg.toolCalls || []), newToolCall],
+                          }
+                          : msg
+                      ))
+                    } else if (data.type === 'tool_result') {
+                      // Update the tool call with its result
+                      const isError = data.result?.error !== undefined
+                      setMessages(prev => prev.map(msg =>
+                        msg.id === assistantMessageId
+                          ? {
+                            ...msg,
+                            toolCalls: (msg.toolCalls || []).map(tc =>
+                              tc.id === data.tool_call_id
+                                ? {
+                                  ...tc,
+                                  result: data.result,
+                                  status: isError ? 'error' as const : 'success' as const,
+                                }
+                                : tc
+                            ),
+                          }
+                          : msg
+                      ))
+                      setLoadingMessage("Processing tool result...")
                     } else if (data.type === 'done') {
                       // Update conversation ID if new
                       if (data.conversation_id) {
@@ -589,6 +631,11 @@ export default function ChatDetail() {
                       </>
                     )}
                     <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
+
+                    {/* Tool calls display for assistant messages */}
+                    {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
+                      <ToolCallDetails toolCalls={msg.toolCalls} />
+                    )}
                   </div>
                 </div>
 

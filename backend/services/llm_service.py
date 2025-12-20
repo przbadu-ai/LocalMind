@@ -1,6 +1,7 @@
 """LLM service for OpenAI-compatible endpoints."""
 
-from typing import Generator, Optional
+import json
+from typing import Any, Generator, Optional, Union
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -11,6 +12,24 @@ class ChatMessage(BaseModel):
 
     role: str
     content: str
+    tool_calls: Optional[list[dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
+
+
+class ToolCall(BaseModel):
+    """Represents a tool call from the LLM."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+class StreamChunk(BaseModel):
+    """A chunk from the streaming response."""
+
+    type: str  # "content", "tool_call", "done"
+    content: Optional[str] = None
+    tool_call: Optional[ToolCall] = None
 
 
 # Special tokens that should be filtered from LLM output
@@ -130,28 +149,109 @@ class LLMService:
         messages: list[ChatMessage],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-    ) -> Generator[str, None, None]:
-        """Send a chat completion request and stream the response."""
+        tools: Optional[list[dict[str, Any]]] = None,
+    ) -> Generator[StreamChunk, None, None]:
+        """Send a chat completion request and stream the response.
+
+        When tools are provided, yields StreamChunk objects that can contain
+        either content or tool calls.
+        """
         if not self._ensure_client():
             raise RuntimeError("LLM not configured. Please configure LLM settings first.")
 
-        formatted_messages = [
-            {"role": msg.role, "content": msg.content} for msg in messages
-        ]
+        formatted_messages = []
+        for msg in messages:
+            formatted_msg: dict[str, Any] = {"role": msg.role, "content": msg.content}
+            if msg.tool_calls:
+                formatted_msg["tool_calls"] = msg.tool_calls
+            if msg.tool_call_id:
+                formatted_msg["tool_call_id"] = msg.tool_call_id
+            formatted_messages.append(formatted_msg)
 
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=formatted_messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
+        # Build request kwargs
+        request_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": formatted_messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if max_tokens:
+            request_kwargs["max_tokens"] = max_tokens
+        if tools:
+            request_kwargs["tools"] = tools
+
+        stream = self.client.chat.completions.create(**request_kwargs)
+
+        # Track tool calls being accumulated during streaming
+        current_tool_calls: dict[int, dict[str, Any]] = {}
 
         for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                content = clean_llm_output(chunk.choices[0].delta.content)
-                if content:  # Only yield non-empty content
-                    yield content
+            if not chunk.choices:
+                continue
+
+            delta = chunk.choices[0].delta
+
+            # Handle content
+            if delta.content:
+                content = clean_llm_output(delta.content)
+                if content:
+                    yield StreamChunk(type="content", content=content)
+
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call_delta in delta.tool_calls:
+                    idx = tool_call_delta.index
+
+                    # Initialize new tool call
+                    if idx not in current_tool_calls:
+                        current_tool_calls[idx] = {
+                            "id": "",
+                            "name": "",
+                            "arguments": "",
+                        }
+
+                    # Accumulate tool call data
+                    if tool_call_delta.id:
+                        current_tool_calls[idx]["id"] = tool_call_delta.id
+                    if tool_call_delta.function:
+                        if tool_call_delta.function.name:
+                            current_tool_calls[idx]["name"] = tool_call_delta.function.name
+                        if tool_call_delta.function.arguments:
+                            current_tool_calls[idx]["arguments"] += tool_call_delta.function.arguments
+
+            # Check for finish reason
+            if chunk.choices[0].finish_reason == "tool_calls":
+                # Yield all accumulated tool calls
+                for idx in sorted(current_tool_calls.keys()):
+                    tc = current_tool_calls[idx]
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    yield StreamChunk(
+                        type="tool_call",
+                        tool_call=ToolCall(
+                            id=tc["id"],
+                            name=tc["name"],
+                            arguments=args,
+                        ),
+                    )
+                current_tool_calls = {}
+
+        # Signal completion
+        yield StreamChunk(type="done")
+
+    def chat_stream_simple(
+        self,
+        messages: list[ChatMessage],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """Simple streaming without tool support - yields content strings only."""
+        for chunk in self.chat_stream(messages, temperature, max_tokens, tools=None):
+            if chunk.type == "content" and chunk.content:
+                yield chunk.content
 
     def is_available(self) -> bool:
         """Check if the LLM endpoint is available."""
