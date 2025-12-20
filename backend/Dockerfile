@@ -4,10 +4,16 @@
 
 FROM python:3.11-slim
 
+# Build arguments for version info
+ARG APP_VERSION=0.0.0-dev
+ARG GIT_COMMIT=unknown
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV APP_VERSION=${APP_VERSION}
+ENV GIT_COMMIT=${GIT_COMMIT}
 
 # Set working directory
 WORKDIR /app
@@ -25,6 +31,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
+# Create VERSION file with build-time version
+RUN echo "${APP_VERSION}" > /app/VERSION
 
 # Create data directory for SQLite database
 RUN mkdir -p /app/data

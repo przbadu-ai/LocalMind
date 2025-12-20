@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { API_BASE_URL } from "@/config/app-config"
 import { useHeaderStore } from "@/stores/useHeaderStore"
+import { VersionInfoDisplay } from "@/components/VersionInfo"
 
 interface LLMSettings {
   provider: string
@@ -1067,6 +1068,17 @@ export default function Settings() {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* Version Information */}
+          <Separator className="my-6" />
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground">Version Information</h3>
+              <div className="mt-2">
+                <VersionInfoDisplay />
+              </div>
+            </div>
+          </div>
         </div>
       </ScrollArea>
     </div>

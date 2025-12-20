@@ -5,6 +5,10 @@
 # Build stage
 FROM node:20-slim AS builder
 
+# Build arguments for version info
+ARG APP_VERSION=0.0.0-dev
+ARG GIT_COMMIT=unknown
+
 # Install bun
 RUN npm install -g bun
 
@@ -44,6 +48,11 @@ RUN echo '{ \
   "features": { "enable_youtube": true, "enable_mcp": true, "enable_offline_mode": true } \
 }' > app.config.json
 
+# Set version environment variables for Vite build
+ENV VITE_APP_VERSION=${APP_VERSION}
+ENV VITE_GIT_COMMIT=${GIT_COMMIT}
+ENV VITE_BUILD_TIME=${BUILD_TIME}
+
 # Build the frontend only (web mode, not Tauri)
 RUN bun run build:frontend
 
@@ -61,7 +70,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Environment variables for backend configuration
 # These can be overridden at runtime
 ENV BACKEND_HOST=localmind-backend
-ENV BACKEND_PORT=52817
+ENV BACKEND_PORT=8001
 
 # Expose port
 EXPOSE 80

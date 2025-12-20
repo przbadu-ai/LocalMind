@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database.connection import init_db
+from version import VERSION, GIT_COMMIT
 
 # Initialize database early - before routers are imported
 # This ensures tables exist even in reload mode
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LocalMind API",
     description="Backend API for LocalMind - LLM chat with YouTube transcription",
-    version="0.1.0",
+    version=VERSION,
     lifespan=lifespan,
 )
 
@@ -63,7 +64,18 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "version": "0.1.0"}
+    return {"status": "healthy", "version": VERSION, "commit": GIT_COMMIT}
+
+
+# Version endpoint
+@app.get("/version")
+async def get_version():
+    """Get application version information."""
+    return {
+        "version": VERSION,
+        "commit": GIT_COMMIT,
+        "service": "backend",
+    }
 
 
 # Import and include routers
