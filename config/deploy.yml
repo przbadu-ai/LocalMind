@@ -30,16 +30,18 @@ servers:
       add-host: host.docker.internal:host-gateway
 
 # Kamal proxy configuration
+# Hosts are loaded from .kamal/secrets: DEPLOY_SERVER_IP and DEPLOY_DOMAIN
 proxy:
   ssl: false
-  host: 192.168.1.173
+  hosts:
+    - <%= ENV['DEPLOY_SERVER_IP'] || '192.168.1.173' %>
+<% if ENV['DEPLOY_DOMAIN'] && !ENV['DEPLOY_DOMAIN'].empty? %>
+    - <%= ENV['DEPLOY_DOMAIN'] %>
+<% end %>
   app_port: 80
   healthcheck:
     path: /
     interval: 10
-  # To enable SSL with a domain, uncomment and configure:
-  # ssl: true
-  # host: your-domain.com
 
 # SSH configuration
 ssh:
