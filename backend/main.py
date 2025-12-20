@@ -36,10 +36,30 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database initialized")
 
+    # Auto-start enabled MCP servers
+    from services.mcp_service import mcp_service
+    enabled_servers = mcp_service.get_enabled_servers()
+    if enabled_servers:
+        logger.info(f"Auto-starting {len(enabled_servers)} enabled MCP server(s)...")
+        for server in enabled_servers:
+            try:
+                success = await mcp_service.start_server(server.id)
+                if success:
+                    logger.info(f"Started MCP server: {server.name}")
+                else:
+                    logger.warning(f"Failed to start MCP server: {server.name}")
+            except Exception as e:
+                logger.error(f"Error starting MCP server {server.name}: {e}")
+
     yield
 
-    # Shutdown
+    # Shutdown - stop all running MCP servers
     logger.info("Shutting down LocalMind backend...")
+    for server_id in list(mcp_service._running_processes.keys()):
+        try:
+            mcp_service.stop_server(server_id)
+        except Exception as e:
+            logger.error(f"Error stopping MCP server {server_id}: {e}")
 
 
 # Create FastAPI app
