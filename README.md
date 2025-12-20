@@ -352,7 +352,7 @@ cp .kamal/secrets.example .kamal/secrets
 kamal setup
 
 # Subsequent deployments
-kamal deploy
+set -a && source .env && set +a && kamal deploy
 ```
 
 The app will be available at `http://your-server-ip:3000`

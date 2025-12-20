@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# Kamal pre-deploy hook
+# This runs before the main app deployment
+# It builds and pushes the backend image, then restarts the backend accessory
+#
+
+set -e
+
+echo "==> Pre-deploy: Building and deploying backend..."
+
+BACKEND_IMAGE="ghcr.io/przbadu/localmind-backend:latest"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Build backend image
+echo "==> Building backend Docker image..."
+docker build -t "$BACKEND_IMAGE" "$PROJECT_ROOT/backend"
+
+# Push backend image
+echo "==> Pushing backend image to registry..."
+docker push "$BACKEND_IMAGE"
+
+# Pull new image on server and restart container
+echo "==> Deploying backend to server..."
+ssh root@192.168.1.173 "
+  docker pull $BACKEND_IMAGE
+
+  # Stop and remove existing container if it exists
+  docker stop localmind-backend 2>/dev/null || true
+  docker rm localmind-backend 2>/dev/null || true
+
+  # Start new container
+  docker run -d \
+    --name localmind-backend \
+    --restart unless-stopped \
+    --add-host host.docker.internal:host-gateway \
+    -p 8001:8001 \
+    -v /var/data/localmind:/app/data \
+    -e PYTHONPATH=/app \
+    -e DATABASE_PATH=/app/data/local_mind.db \
+    -e 'OLLAMA_HOST=http://host.docker.internal:11434' \
+    $BACKEND_IMAGE \
+    uvicorn main:app --host 0.0.0.0 --port 8001
+"
+
+# Wait for backend to be healthy
+echo "==> Waiting for backend health check..."
+for i in {1..12}; do
+    if ssh root@192.168.1.173 "curl -sf http://localhost:8001/health" > /dev/null 2>&1; then
+        echo "==> Backend is healthy!"
+        exit 0
+    fi
+    echo "  Waiting for backend... (attempt $i/12)"
+    sleep 5
+done
+
+echo "==> Warning: Backend health check timed out, continuing with frontend deploy..."

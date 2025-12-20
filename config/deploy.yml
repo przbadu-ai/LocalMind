@@ -1,6 +1,15 @@
 # Kamal deployment configuration for LocalMind
 # Documentation: https://kamal-deploy.org/docs/configuration/
 #
+# Deployment: Just run `kamal deploy` - it handles both frontend and backend!
+#
+# The pre-deploy hook (.kamal/hooks/pre-deploy) automatically:
+#   1. Builds the backend Docker image
+#   2. Pushes it to the registry
+#   3. Deploys and restarts the backend container
+#   4. Waits for health check
+#   5. Then Kamal deploys the frontend
+#
 # Quick Start:
 #   1. Copy .env.example to .env and configure your values
 #   2. Copy .kamal/secrets.example to .kamal/secrets
@@ -54,25 +63,8 @@ env:
 volumes:
   - /var/data/localmind:/app/data
 
-# Backend service as an accessory
-accessories:
-  backend:
-    image: ghcr.io/przbadu/localmind-backend
-    host: 192.168.1.173
-    port: 8001
-    cmd: uvicorn main:app --host 0.0.0.0 --port 8001
-    env:
-      clear:
-        PYTHONPATH: /app
-        DATABASE_PATH: /app/data/local_mind.db
-        # Ollama running on host machine
-        OLLAMA_HOST: http://host.docker.internal:11434
-      secret:
-        - LLM_API_KEY
-    volumes:
-      - /var/data/localmind:/app/data
-    options:
-      add-host: host.docker.internal:host-gateway
+# Note: Backend is deployed via pre-deploy hook (.kamal/hooks/pre-deploy)
+# This ensures the backend image is always built and deployed with the frontend
 
 # Build configuration
 builder:
