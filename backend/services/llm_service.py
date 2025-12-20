@@ -4,8 +4,8 @@ import json
 import logging
 from typing import Any, Generator, Optional, Union
 
-from openai import OpenAI
-from pydantic import BaseModel
+from openai import OpenAI # type: ignore
+from pydantic import BaseModel # type: ignore
 
 logger = logging.getLogger(__name__)
 

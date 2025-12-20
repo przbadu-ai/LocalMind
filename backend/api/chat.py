@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,6 +15,8 @@ from database.models import Chat, Message, ToolCallData
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
+from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
+from services.mcp_service import mcp_service
 from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
@@ -285,6 +288,7 @@ You have access to the following tools. Use them when you need real-time or accu
             }),
         }
 
+        # Stream LLM response with tool execution loop
         # Stream LLM response with tool execution loop
         full_response = ""
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
