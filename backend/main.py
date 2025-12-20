@@ -55,9 +55,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown - stop all running MCP servers
     logger.info("Shutting down LocalMind backend...")
-    for server_id in list(mcp_service._running_processes.keys()):
+    for server_id in list(mcp_service._connections.keys()):
         try:
-            mcp_service.stop_server(server_id)
+            await mcp_service.stop_server(server_id)
         except Exception as e:
             logger.error(f"Error stopping MCP server {server_id}: {e}")
 

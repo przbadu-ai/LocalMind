@@ -1,10 +1,13 @@
-"""MCP (Model Context Protocol) server management service."""
+"""MCP (Model Context Protocol) server management service using official SDK."""
 
 import asyncio
 import json
 import logging
-import subprocess
+from contextlib import AsyncExitStack
 from typing import Any, Optional
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 from database.models import MCPServer
 from database.repositories.config_repository import ConfigRepository
@@ -12,13 +15,149 @@ from database.repositories.config_repository import ConfigRepository
 logger = logging.getLogger(__name__)
 
 
+class MCPServerConnection:
+    """Manages a single MCP server connection using the official SDK."""
+
+    def __init__(self, server: MCPServer):
+        self.server = server
+        self.session: Optional[ClientSession] = None
+        self.exit_stack: Optional[AsyncExitStack] = None
+        self._tools_cache: Optional[list[dict[str, Any]]] = None
+
+    async def connect(self) -> bool:
+        """Connect to the MCP server."""
+        if self.session is not None:
+            return True
+
+        try:
+            self.exit_stack = AsyncExitStack()
+
+            if self.server.transport_type == "stdio":
+                return await self._connect_stdio()
+            else:
+                logger.error(f"Unsupported transport type: {self.server.transport_type}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server {self.server.name}: {e}")
+            await self.disconnect()
+            return False
+
+    async def _connect_stdio(self) -> bool:
+        """Connect to a stdio-based MCP server."""
+        if not self.server.command:
+            logger.error(f"No command specified for stdio server {self.server.name}")
+            return False
+
+        # Build args list
+        args = self.server.args or []
+
+        # Build environment
+        env = dict(self.server.env) if self.server.env else None
+
+        server_params = StdioServerParameters(
+            command=self.server.command,
+            args=args,
+            env=env,
+        )
+
+        try:
+            # Use the official MCP SDK's stdio_client
+            stdio_transport = await self.exit_stack.enter_async_context(
+                stdio_client(server_params)
+            )
+            read_stream, write_stream = stdio_transport
+
+            # Create and initialize session
+            self.session = await self.exit_stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
+
+            # Initialize the MCP session (required handshake)
+            await self.session.initialize()
+
+            logger.info(f"Connected to MCP server: {self.server.name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start stdio server {self.server.name}: {e}")
+            return False
+
+    async def disconnect(self) -> None:
+        """Disconnect from the MCP server."""
+        if self.exit_stack:
+            try:
+                await self.exit_stack.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing MCP server {self.server.name}: {e}")
+            finally:
+                self.exit_stack = None
+                self.session = None
+                self._tools_cache = None
+
+    async def list_tools(self) -> list[dict[str, Any]]:
+        """List available tools from the MCP server."""
+        if not self.session:
+            return []
+
+        try:
+            response = await self.session.list_tools()
+            tools = []
+            for tool in response.tools:
+                tools.append({
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {},
+                })
+            self._tools_cache = tools
+            return tools
+        except Exception as e:
+            logger.error(f"Failed to list tools from {self.server.name}: {e}")
+            return []
+
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+        """Call a tool on the MCP server."""
+        if not self.session:
+            return {"error": "Server not connected"}
+
+        try:
+            result = await self.session.call_tool(tool_name, arguments)
+
+            # Extract content from the result
+            if hasattr(result, 'content') and result.content:
+                # MCP returns content as a list of content blocks
+                contents = []
+                for content in result.content:
+                    if hasattr(content, 'text'):
+                        contents.append(content.text)
+                    elif hasattr(content, 'data'):
+                        contents.append(content.data)
+                    else:
+                        contents.append(str(content))
+
+                if len(contents) == 1:
+                    return contents[0]
+                return contents
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to call tool {tool_name} on {self.server.name}: {e}")
+            return {"error": str(e)}
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if the server is connected."""
+        return self.session is not None
+
+
 class MCPService:
-    """Service for managing MCP servers."""
+    """Service for managing MCP servers using the official SDK."""
 
     def __init__(self):
         self.config_repo = ConfigRepository()
-        self._running_processes: dict[str, subprocess.Popen] = {}
-        self._server_status: dict[str, str] = {}  # server_id -> status
+        self._connections: dict[str, MCPServerConnection] = {}
+        self._server_status: dict[str, str] = {}
 
     def get_all_servers(self) -> list[MCPServer]:
         """Get all configured MCP servers."""
@@ -43,17 +182,14 @@ class MCPService:
     def delete_server(self, server_id: str) -> bool:
         """Delete an MCP server configuration."""
         # Stop the server if it's running
-        if server_id in self._running_processes:
-            self.stop_server(server_id)
+        if server_id in self._connections:
+            asyncio.create_task(self.stop_server(server_id))
         return self.config_repo.delete_mcp_server(server_id)
 
     def is_server_running(self, server_id: str) -> bool:
         """Check if a server is running."""
-        if server_id not in self._running_processes:
-            return False
-
-        process = self._running_processes[server_id]
-        return process.poll() is None
+        conn = self._connections.get(server_id)
+        return conn is not None and conn.is_connected
 
     def get_server_status(self, server_id: str) -> str:
         """Get the status of a server."""
@@ -73,90 +209,33 @@ class MCPService:
             return True
 
         try:
-            if server.transport_type == "stdio":
-                return await self._start_stdio_server(server)
-            elif server.transport_type == "sse":
-                return await self._validate_sse_server(server)
+            conn = MCPServerConnection(server)
+            success = await conn.connect()
+
+            if success:
+                self._connections[server_id] = conn
+                self._server_status[server_id] = "running"
+                logger.info(f"Started MCP server: {server.name}")
+                return True
             else:
-                logger.error(f"Unknown transport type: {server.transport_type}")
+                self._server_status[server_id] = "error: failed to connect"
                 return False
+
         except Exception as e:
             logger.error(f"Failed to start server {server_id}: {e}")
             self._server_status[server_id] = f"error: {str(e)}"
             return False
 
-    async def _start_stdio_server(self, server: MCPServer) -> bool:
-        """Start a stdio-based MCP server."""
-        if not server.command:
-            logger.error(f"No command specified for stdio server {server.id}")
-            return False
-
-        # Build command
-        cmd = [server.command]
-        if server.args:
-            cmd.extend(server.args)
-
-        # Build environment
-        env = dict(subprocess.os.environ)
-        if server.env:
-            env.update(server.env)
-
-        try:
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-            )
-            self._running_processes[server.id] = process
-            self._server_status[server.id] = "running"
-            logger.info(f"Started stdio server {server.id}: {' '.join(cmd)}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start stdio server {server.id}: {e}")
-            self._server_status[server.id] = f"error: {str(e)}"
-            return False
-
-    async def _validate_sse_server(self, server: MCPServer) -> bool:
-        """Validate an SSE-based MCP server is reachable."""
-        if not server.url:
-            logger.error(f"No URL specified for SSE server {server.id}")
-            return False
-
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(server.url)
-                if response.status_code == 200:
-                    self._server_status[server.id] = "running"
-                    logger.info(f"SSE server {server.id} is reachable at {server.url}")
-                    return True
-                else:
-                    self._server_status[server.id] = f"error: HTTP {response.status_code}"
-                    return False
-        except Exception as e:
-            logger.error(f"Failed to validate SSE server {server.id}: {e}")
-            self._server_status[server.id] = f"error: {str(e)}"
-            return False
-
-    def stop_server(self, server_id: str) -> bool:
+    async def stop_server(self, server_id: str) -> bool:
         """Stop a running MCP server."""
-        if server_id not in self._running_processes:
+        conn = self._connections.get(server_id)
+        if not conn:
             logger.info(f"Server {server_id} is not running")
             return True
 
         try:
-            process = self._running_processes[server_id]
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-
-            del self._running_processes[server_id]
+            await conn.disconnect()
+            del self._connections[server_id]
             self._server_status[server_id] = "stopped"
             logger.info(f"Stopped server {server_id}")
             return True
@@ -166,123 +245,99 @@ class MCPService:
 
     async def list_tools(self, server_id: str) -> list[dict[str, Any]]:
         """List available tools from an MCP server."""
-        server = self.get_server(server_id)
-        if not server:
+        conn = self._connections.get(server_id)
+        if not conn or not conn.is_connected:
             return []
 
-        if not self.is_server_running(server_id) and server.transport_type == "stdio":
-            return []
-
-        try:
-            # Send tools/list request via JSON-RPC
-            request = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/list",
-            }
-
-            if server.transport_type == "stdio":
-                return await self._send_stdio_request(server_id, request)
-            else:
-                return await self._send_sse_request(server, request)
-        except Exception as e:
-            logger.error(f"Failed to list tools for server {server_id}: {e}")
-            return []
+        return await conn.list_tools()
 
     async def call_tool(
         self,
         server_id: str,
         tool_name: str,
         arguments: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> Any:
         """Call a tool on an MCP server."""
-        server = self.get_server(server_id)
-        if not server:
-            return {"error": "Server not found"}
-
-        if not self.is_server_running(server_id) and server.transport_type == "stdio":
+        conn = self._connections.get(server_id)
+        if not conn or not conn.is_connected:
             return {"error": "Server not running"}
 
+        return await conn.call_tool(tool_name, arguments)
+
+    async def get_all_tools_as_openai_format(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        """Get all tools from enabled/running MCP servers in OpenAI function format.
+
+        Returns:
+            Tuple of (tools_list, tool_to_server_map) where:
+            - tools_list: List of tools in OpenAI function format
+            - tool_to_server_map: Dict mapping tool name to server_id
+        """
+        all_tools: list[dict[str, Any]] = []
+        tool_to_server: dict[str, str] = {}
+
+        for server_id, conn in self._connections.items():
+            if not conn.is_connected:
+                continue
+
+            try:
+                tools = await conn.list_tools()
+                for tool in tools:
+                    openai_tool = self._convert_mcp_tool_to_openai(tool, conn.server.name)
+                    if openai_tool:
+                        all_tools.append(openai_tool)
+                        tool_name = openai_tool["function"]["name"]
+                        tool_to_server[tool_name] = server_id
+            except Exception as e:
+                logger.warning(f"Failed to get tools from server {conn.server.name}: {e}")
+
+        return all_tools, tool_to_server
+
+    def _convert_mcp_tool_to_openai(
+        self, mcp_tool: dict[str, Any], server_name: str
+    ) -> Optional[dict[str, Any]]:
+        """Convert an MCP tool definition to OpenAI function format."""
         try:
-            request = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": tool_name,
-                    "arguments": arguments,
-                },
+            tool_name = mcp_tool.get("name")
+            if not tool_name:
+                return None
+
+            # Prefix tool name with server name to avoid collisions
+            prefixed_name = f"{server_name}__{tool_name}"
+
+            function_def: dict[str, Any] = {
+                "name": prefixed_name,
+                "description": mcp_tool.get("description", f"Tool from {server_name}"),
             }
 
-            if server.transport_type == "stdio":
-                return await self._send_stdio_request(server_id, request)
+            # Convert input schema
+            input_schema = mcp_tool.get("inputSchema", mcp_tool.get("input_schema", {}))
+            if input_schema:
+                function_def["parameters"] = {
+                    "type": input_schema.get("type", "object"),
+                    "properties": input_schema.get("properties", {}),
+                    "required": input_schema.get("required", []),
+                }
             else:
-                return await self._send_sse_request(server, request)
+                function_def["parameters"] = {
+                    "type": "object",
+                    "properties": {},
+                }
+
+            return {
+                "type": "function",
+                "function": function_def,
+            }
+
         except Exception as e:
-            logger.error(f"Failed to call tool {tool_name} on server {server_id}: {e}")
-            return {"error": str(e)}
+            logger.warning(f"Failed to convert MCP tool to OpenAI format: {e}")
+            return None
 
-    async def _send_stdio_request(
-        self,
-        server_id: str,
-        request: dict[str, Any],
-    ) -> Any:
-        """Send a JSON-RPC request to a stdio server."""
-        if server_id not in self._running_processes:
-            return {"error": "Server not running"}
-
-        process = self._running_processes[server_id]
-        if process.stdin is None or process.stdout is None:
-            return {"error": "Server IO not available"}
-
-        try:
-            # Write request
-            request_str = json.dumps(request) + "\n"
-            process.stdin.write(request_str.encode())
-            process.stdin.flush()
-
-            # Read response (with timeout)
-            loop = asyncio.get_event_loop()
-            response_str = await asyncio.wait_for(
-                loop.run_in_executor(None, process.stdout.readline),
-                timeout=30.0,
-            )
-
-            if response_str:
-                response = json.loads(response_str.decode())
-                return response.get("result", response)
-            return {"error": "No response"}
-        except asyncio.TimeoutError:
-            return {"error": "Request timed out"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _send_sse_request(
-        self,
-        server: MCPServer,
-        request: dict[str, Any],
-    ) -> Any:
-        """Send a JSON-RPC request to an SSE server."""
-        if not server.url:
-            return {"error": "No URL configured"}
-
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    server.url,
-                    json=request,
-                    headers={"Content-Type": "application/json"},
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    return data.get("result", data)
-                else:
-                    return {"error": f"HTTP {response.status_code}"}
-        except Exception as e:
-            return {"error": str(e)}
+    def parse_tool_name(self, prefixed_name: str) -> tuple[str, str]:
+        """Parse a prefixed tool name back to server_name and tool_name."""
+        if "__" in prefixed_name:
+            parts = prefixed_name.split("__", 1)
+            return parts[0], parts[1]
+        return "", prefixed_name
 
     def create_mcp_config_json(self, servers: Optional[list[MCPServer]] = None) -> str:
         """Generate MCP configuration JSON for external tools."""

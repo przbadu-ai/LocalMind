@@ -197,7 +197,7 @@ async def stop_mcp_server(server_id: str) -> dict:
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    success = mcp_service.stop_server(server_id)
+    success = await mcp_service.stop_server(server_id)
 
     return {
         "success": success,
