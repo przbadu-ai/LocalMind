@@ -42,6 +42,23 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
 
 
+class GenerationMetrics(BaseModel):
+    """Metrics from the LLM generation process."""
+
+    # Token counts
+    prompt_tokens: Optional[int] = None  # Number of tokens in the prompt
+    completion_tokens: Optional[int] = None  # Number of tokens generated
+    total_tokens: Optional[int] = None  # Total tokens (prompt + completion)
+
+    # Timing (in seconds)
+    prompt_eval_duration: Optional[float] = None  # Time to process prompt
+    eval_duration: Optional[float] = None  # Time to generate response
+    total_duration: Optional[float] = None  # Total time
+
+    # Performance
+    tokens_per_second: Optional[float] = None  # Generation speed
+
+
 class StreamChunk(BaseModel):
     """A chunk from the streaming response.
 
@@ -49,13 +66,14 @@ class StreamChunk(BaseModel):
     - "content": Regular response content
     - "thinking": Reasoning/thinking content from models like deepseek-r1, qwen3
     - "tool_call": Tool/function call request
-    - "done": Stream completion signal
+    - "done": Stream completion signal (includes metrics)
     """
 
     type: str  # "content", "thinking", "tool_call", "done"
     content: Optional[str] = None
     thinking: Optional[str] = None  # Reasoning/thinking content
     tool_call: Optional[ToolCall] = None
+    metrics: Optional[GenerationMetrics] = None  # Included with "done" chunk
 
 
 # Special tokens that should be filtered from LLM output

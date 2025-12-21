@@ -340,6 +340,7 @@ You have access to the following tools. Use them when you need real-time or accu
         full_response = ""
         full_thinking = ""  # Track thinking/reasoning content separately
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
+        generation_metrics: Optional[dict[str, Any]] = None  # Track generation metrics
 
         try:
             # Single pass - either stream content OR execute tools (not both in a loop)
@@ -385,6 +386,9 @@ You have access to the following tools. Use them when you need real-time or accu
                 elif chunk.type == "tool_call" and chunk.tool_call:
                     pending_tool_calls.append(chunk.tool_call)
                 elif chunk.type == "done":
+                    # Capture generation metrics from the done chunk
+                    if chunk.metrics:
+                        generation_metrics = chunk.metrics.model_dump(exclude_none=True)
                     break
 
             # Execute any tool calls that were requested
@@ -529,6 +533,9 @@ You have access to the following tools. Use them when you need real-time or accu
                             }),
                         }
                     elif chunk.type == "done":
+                        # Capture generation metrics from the done chunk
+                        if chunk.metrics:
+                            generation_metrics = chunk.metrics.model_dump(exclude_none=True)
                         break
 
         except Exception as e:
@@ -597,13 +604,15 @@ You have access to the following tools. Use them when you need real-time or accu
                 generated_title = message[:50] + ("..." if len(message) > 50 else "")
                 chat_repo.update_title(conversation_id, generated_title)
 
-        # Send done event with title if generated
-        done_data = {
+        # Send done event with title if generated and metrics if available
+        done_data: dict[str, Any] = {
             "type": "done",
             "conversation_id": conversation_id,
         }
         if generated_title:
             done_data["title"] = generated_title
+        if generation_metrics:
+            done_data["metrics"] = generation_metrics
 
         yield {
             "event": "message",

@@ -467,6 +467,7 @@ async def fetch_available_models(request: LLMSettingsRequest) -> dict:
         base_url=request.base_url or (default_provider.base_url if default_provider else settings.llm_base_url),
         api_key=request.api_key or (default_provider.api_key if default_provider else settings.llm_api_key),
         model=request.model or (default_provider.model if default_provider else settings.llm_model),
+        provider_name=request.provider or (default_provider.name if default_provider else None),
     )
 
     try:

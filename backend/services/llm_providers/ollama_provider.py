@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from .base import (
     BaseLLMProvider,
     ChatMessage,
+    GenerationMetrics,
     StreamChunk,
     ToolCall,
     clean_llm_output,
@@ -251,11 +252,43 @@ class OllamaProvider(BaseLLMProvider):
                         )
                         yield StreamChunk(type="tool_call", tool_call=tool_call)
 
-                # Check if done
+                # Check if done - extract metrics from final chunk
                 if chunk.get("done"):
-                    break
+                    # Ollama returns metrics in the final chunk
+                    # Durations are in nanoseconds, convert to seconds
+                    eval_count = chunk.get("eval_count", 0)
+                    eval_duration_ns = chunk.get("eval_duration", 0)
+                    prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                    prompt_eval_duration_ns = chunk.get("prompt_eval_duration", 0)
+                    total_duration_ns = chunk.get("total_duration", 0)
 
-            # Signal completion
+                    # Convert nanoseconds to seconds
+                    eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else None
+                    prompt_eval_duration_s = prompt_eval_duration_ns / 1e9 if prompt_eval_duration_ns else None
+                    total_duration_s = total_duration_ns / 1e9 if total_duration_ns else None
+
+                    # Calculate tokens per second
+                    tokens_per_second = None
+                    if eval_count and eval_duration_s and eval_duration_s > 0:
+                        tokens_per_second = eval_count / eval_duration_s
+
+                    metrics = GenerationMetrics(
+                        prompt_tokens=prompt_eval_count if prompt_eval_count else None,
+                        completion_tokens=eval_count if eval_count else None,
+                        total_tokens=(prompt_eval_count + eval_count) if (prompt_eval_count or eval_count) else None,
+                        prompt_eval_duration=prompt_eval_duration_s,
+                        eval_duration=eval_duration_s,
+                        total_duration=total_duration_s,
+                        tokens_per_second=round(tokens_per_second, 2) if tokens_per_second else None,
+                    )
+
+                    logger.info(f"Ollama generation metrics: {eval_count} tokens, {tokens_per_second:.2f} tok/s" if tokens_per_second else "Ollama generation complete (no metrics)")
+
+                    # Signal completion with metrics
+                    yield StreamChunk(type="done", metrics=metrics)
+                    return
+
+            # Signal completion (fallback if loop exits without done)
             yield StreamChunk(type="done")
 
         except Exception as e:
@@ -281,8 +314,10 @@ class OllamaProvider(BaseLLMProvider):
 
         try:
             response = self.client.list()
-            models = response.get("models", [])
-            return [m.get("name", "") for m in models if m.get("name")]
+            # The ollama package returns a ListResponse object with a .models attribute
+            # Each model has a .model attribute containing the model name
+            models = response.models if hasattr(response, 'models') else []
+            return [m.model for m in models if m.model]
         except Exception as e:
             logger.error(f"Failed to get Ollama models: {e}")
             return []

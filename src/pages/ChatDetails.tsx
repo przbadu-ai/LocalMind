@@ -23,6 +23,16 @@ import {
 } from "@/components/chat/ImageAttachment"
 import type { ToolCall } from "@/types/toolCall"
 
+interface GenerationMetrics {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  prompt_eval_duration?: number
+  eval_duration?: number
+  total_duration?: number
+  tokens_per_second?: number
+}
+
 interface ChatMessage {
   id: string
   type: 'user' | 'assistant'
@@ -37,6 +47,7 @@ interface ChatMessage {
     images?: Array<{ data: string; mimeType: string; preview?: string }>
   }
   toolCalls?: ToolCall[]
+  metrics?: GenerationMetrics
 }
 
 interface TranscriptData {
@@ -626,6 +637,14 @@ export default function ChatDetail() {
                         setCurrentChat(prev => prev ? { ...prev, title: data.title } : prev)
                         window.dispatchEvent(new Event('chats-updated'))
                       }
+                      // Store generation metrics on the assistant message
+                      if (data.metrics) {
+                        setMessages(prev => prev.map(msg =>
+                          msg.id === assistantMessageId
+                            ? { ...msg, metrics: data.metrics }
+                            : msg
+                        ))
+                      }
                     } else if (data.type === 'cancelled') {
                       // Stream was cancelled by user - update any executing tools
                       setMessages(prev => prev.map(msg =>
@@ -868,7 +887,25 @@ export default function ChatDetail() {
                         )}
                       </>
                     )}
-                    <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <p className="text-xs opacity-70">{msg.timestamp}</p>
+                      {msg.type === 'assistant' && msg.metrics && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {msg.metrics.tokens_per_second && (
+                            <span className="flex items-center gap-1">
+                              <span className="opacity-50">•</span>
+                              <span>{msg.metrics.tokens_per_second.toFixed(1)} tok/s</span>
+                            </span>
+                          )}
+                          {msg.metrics.completion_tokens && (
+                            <span className="flex items-center gap-1">
+                              <span className="opacity-50">•</span>
+                              <span>{msg.metrics.completion_tokens} tokens</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
