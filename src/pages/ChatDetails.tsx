@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -97,6 +97,8 @@ export default function ChatDetail() {
   const [thinkingEnabled, setThinkingEnabled] = useState(true)
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
   const [isCompact, setIsCompact] = useState(false)
+  // Track which message was just copied (for copy button feedback)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
   useEffect(() => {
     const checkCompact = () => {
@@ -911,6 +913,30 @@ export default function ChatDetail() {
                             </Badge>
                           )}
                         </div>
+                      )}
+                      {/* Copy button for assistant messages */}
+                      {msg.type === 'assistant' && msg.content && (
+                        <button
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(msg.content)
+                            setCopiedMessageId(msg.id)
+                            setTimeout(() => setCopiedMessageId(null), 3000)
+                          }}
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ml-1"
+                          title="Copy response as markdown"
+                        >
+                          {copiedMessageId === msg.id ? (
+                            <>
+                              <Check className="h-3 w-3 text-green-500" />
+                              <span className="text-green-500">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
                       )}
                     </div>
                   </div>
