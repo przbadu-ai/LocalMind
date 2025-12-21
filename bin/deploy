@@ -5,16 +5,42 @@
 # This is a convenience wrapper around `kamal deploy`.
 # The actual deployment logic is in .kamal/hooks/pre-deploy
 #
-# Usage: ./bin/deploy
+# Usage:
+#   ./bin/deploy           # Default: builds with --no-cache (reliable)
+#   ./bin/deploy --cached  # Uses Docker cache (faster, for frontend-only changes)
 #
 
 set -e
 
 cd "$(dirname "$0")/.."
 
+# Parse arguments
+USE_CACHE=false
+for arg in "$@"; do
+    case $arg in
+        --cached)
+            USE_CACHE=true
+            shift
+            ;;
+    esac
+done
+
+# Export for pre-deploy hook to use
+export DEPLOY_USE_CACHE="$USE_CACHE"
+
 echo "╔════════════════════════════════════════╗"
 echo "║     LocalMind Deployment               ║"
 echo "╚════════════════════════════════════════╝"
+echo ""
+
+if [ "$USE_CACHE" = true ]; then
+    echo "Mode: CACHED (faster, uses Docker cache)"
+    echo "      Use this for frontend-only changes"
+else
+    echo "Mode: FRESH (--no-cache, reliable)"
+    echo "      Use --cached flag for faster builds"
+fi
+
 echo ""
 echo "Running kamal deploy..."
 echo "This will:"

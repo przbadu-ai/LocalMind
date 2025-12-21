@@ -4,6 +4,10 @@
 # This runs before the main app deployment
 # It builds and pushes the backend image, then restarts the backend accessory
 #
+# Build modes:
+#   Default: --no-cache (reliable, prevents stale code issues)
+#   With DEPLOY_USE_CACHE=true: uses Docker cache (faster)
+#
 
 set -e
 
@@ -18,9 +22,18 @@ GIT_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "
 
 echo "==> Version: $APP_VERSION (commit: $GIT_COMMIT)"
 
+# Determine cache mode
+if [ "$DEPLOY_USE_CACHE" = "true" ]; then
+    echo "==> Building backend Docker image (with cache)..."
+    CACHE_FLAG=""
+else
+    echo "==> Building backend Docker image (--no-cache for fresh build)..."
+    CACHE_FLAG="--no-cache"
+fi
+
 # Build backend image with version info
-echo "==> Building backend Docker image..."
 docker build \
+  $CACHE_FLAG \
   --build-arg APP_VERSION="$APP_VERSION" \
   --build-arg GIT_COMMIT="$GIT_COMMIT" \
   -t "$BACKEND_IMAGE" \

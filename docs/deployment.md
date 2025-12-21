@@ -12,6 +12,11 @@ This guide covers deploying LocalMind to a server using [Kamal](https://kamal-de
 - [Deployment Commands](#deployment-commands)
 - [SSL Setup (Optional)](#ssl-setup-optional)
 - [Troubleshooting](#troubleshooting)
+  - [Backend deployment not picking up latest code](#6-backend-deployment-not-picking-up-latest-code)
+  - [Server disk space full](#7-server-disk-space-full)
+  - [Backend container shows "unhealthy" but API works](#8-backend-container-shows-unhealthy-but-api-works)
+  - [MCP servers failing to start](#9-mcp-servers-failing-to-start-during-backend-startup)
+- [Quick Reference: Manual Backend Deployment](#quick-reference-manual-backend-deployment)
 
 ## Prerequisites
 
@@ -414,6 +419,195 @@ kamal proxy logs
 
 # Check server Docker status
 ssh root@your-server-ip "docker ps -a"
+```
+
+#### 6. Backend deployment not picking up latest code
+
+**Symptoms:**
+- `kamal deploy` succeeds but new code changes are not reflected
+- Backend returns 404 for newly added endpoints
+- Container image on server is outdated
+
+**Root Cause:** Docker layer caching can cause stale images to be pushed even when code has changed.
+
+**Diagnosis Steps:**
+
+```bash
+# 1. Check if endpoint exists in local code
+grep -r "your_endpoint" backend/
+
+# 2. Verify local Docker image has the new code
+docker build -t test-backend ./backend
+docker run --rm test-backend cat /app/api/chat.py | grep "your_endpoint"
+
+# 3. Check what's running on the server
+ssh root@192.168.1.173 "docker exec localmind-backend cat /app/api/chat.py | grep 'your_endpoint'"
+
+# 4. Compare image IDs
+docker images | grep localmind-backend
+ssh root@192.168.1.173 "docker images | grep localmind-backend"
+```
+
+**Solution:**
+
+```bash
+# Rebuild the backend image with --no-cache to bust Docker cache
+docker build --no-cache -t ghcr.io/przbadu/localmind-backend:latest ./backend
+
+# Push the fresh image
+docker push ghcr.io/przbadu/localmind-backend:latest
+
+# On the server, pull the new image and restart
+ssh root@192.168.1.173 "docker pull ghcr.io/przbadu/localmind-backend:latest && docker stop localmind-backend && docker rm localmind-backend"
+
+# Re-run the container (use the same command from pre-deploy hook)
+ssh root@192.168.1.173 "docker run -d \
+  --name localmind-backend \
+  --network kamal \
+  --restart unless-stopped \
+  --add-host host.docker.internal:host-gateway \
+  -p 8001:8001 \
+  -v /var/data/localmind:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e PYTHONPATH=/app \
+  -e DATABASE_PATH=/app/data/local_mind.db \
+  -e 'OLLAMA_HOST=http://host.docker.internal:11434' \
+  ghcr.io/przbadu/localmind-backend:latest \
+  uvicorn main:app --host 0.0.0.0 --port 8001"
+
+# Verify the endpoint is now available
+ssh root@192.168.1.173 "curl -s http://localhost:8001/health"
+```
+
+#### 7. Server disk space full
+
+**Symptoms:**
+- `docker pull` fails with "no space left on device"
+- Container builds fail
+
+**Solution:**
+
+```bash
+# Clean up Docker resources on the server
+ssh root@192.168.1.173 "docker system prune -af && docker volume prune -f"
+
+# Verify space was reclaimed
+ssh root@192.168.1.173 "df -h /"
+```
+
+#### 8. Backend container shows "unhealthy" but API works
+
+**Symptoms:**
+- `docker ps` shows the container as "unhealthy"
+- But API endpoints (e.g., `/health`) respond correctly
+
+**Cause:** The Dockerfile's HEALTHCHECK uses port 52817 but Kamal overrides the CMD to use port 8001. The Docker health check tries to connect to 52817 (the default) which doesn't exist.
+
+**This is a cosmetic issue** - the application is functioning correctly. To verify:
+
+```bash
+# Test health endpoint directly
+ssh root@192.168.1.173 "curl -s http://localhost:8001/health"
+
+# Expected output: {"status":"healthy","version":"X.X.X","commit":"XXXXXX"}
+```
+
+**Note:** This will be fixed in a future update by aligning the Dockerfile HEALTHCHECK port with the Kamal configuration.
+
+#### 9. MCP servers failing to start during backend startup
+
+**Symptoms:**
+- Backend logs show "Timeout connecting to MCP server X"
+- "MCP servers: 0 started, N failed"
+
+**Cause:** MCP servers require Docker images to be pulled on first run, which may timeout during the startup window.
+
+**Solutions:**
+1. **Pre-pull MCP Docker images on the server:**
+   ```bash
+   ssh root@192.168.1.173 "docker pull mcp/github:latest && docker pull mcp/postgres:latest && docker pull mcp/playwright:latest"
+   ```
+
+2. **Restart the backend after images are pulled:**
+   ```bash
+   ssh root@192.168.1.173 "docker restart localmind-backend"
+   ```
+
+3. **The MCP servers will auto-start once their images are available**
+
+### Useful Debug Commands
+
+```bash
+# View all containers
+kamal app details
+
+# Check accessory status
+kamal accessory details backend
+
+# View proxy logs
+kamal proxy logs
+
+# Check server Docker status
+ssh root@your-server-ip "docker ps -a"
+
+# View backend container logs
+ssh root@192.168.1.173 "docker logs localmind-backend --tail 100"
+
+# Check what code is in the running container
+ssh root@192.168.1.173 "docker exec localmind-backend ls -la /app"
+
+# Verify API routes are registered
+ssh root@192.168.1.173 "curl -s http://localhost:8001/openapi.json | head -200"
+```
+
+### Quick Reference: Manual Backend Deployment
+
+If the normal `kamal deploy` doesn't update the backend, use this quick script:
+
+```bash
+#!/bin/bash
+# Save as: bin/deploy-backend-manual
+
+set -e
+BACKEND_IMAGE="ghcr.io/przbadu/localmind-backend:latest"
+
+echo "==> Building backend with --no-cache..."
+docker build --no-cache -t "$BACKEND_IMAGE" ./backend
+
+echo "==> Pushing to registry..."
+docker push "$BACKEND_IMAGE"
+
+echo "==> Deploying to server..."
+ssh root@192.168.1.173 "
+  docker pull $BACKEND_IMAGE
+  docker stop localmind-backend 2>/dev/null || true
+  docker rm localmind-backend 2>/dev/null || true
+  docker run -d \
+    --name localmind-backend \
+    --network kamal \
+    --restart unless-stopped \
+    --add-host host.docker.internal:host-gateway \
+    -p 8001:8001 \
+    -v /var/data/localmind:/app/data \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -e PYTHONPATH=/app \
+    -e DATABASE_PATH=/app/data/local_mind.db \
+    -e 'OLLAMA_HOST=http://host.docker.internal:11434' \
+    $BACKEND_IMAGE \
+    uvicorn main:app --host 0.0.0.0 --port 8001
+"
+
+echo "==> Waiting for health check..."
+for i in {1..12}; do
+    if ssh root@192.168.1.173 "curl -sf http://localhost:8001/health" > /dev/null 2>&1; then
+        echo "==> Backend is healthy!"
+        exit 0
+    fi
+    echo "  Waiting... (attempt $i/12)"
+    sleep 5
+done
+
+echo "==> Backend deployed but health check timed out (may still be starting)"
 ```
 
 ### Getting Help
