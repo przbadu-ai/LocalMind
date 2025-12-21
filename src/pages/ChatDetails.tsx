@@ -15,6 +15,12 @@ import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
 import { ToolCallAccordion } from "@/components/chat/ToolCallAccordion"
+import {
+  ImageAttachment,
+  ImagePreviewList,
+  useImagePaste,
+  type AttachedImage,
+} from "@/components/chat/ImageAttachment"
 import type { ToolCall } from "@/types/toolCall"
 
 interface ChatMessage {
@@ -28,6 +34,7 @@ interface ChatMessage {
     url?: string
     transcript_available?: boolean
     error?: string
+    images?: Array<{ data: string; mimeType: string; preview?: string }>
   }
   toolCalls?: ToolCall[]
 }
@@ -71,6 +78,9 @@ export default function ChatDetail() {
   const [isTranscriptLoading, setIsTranscriptLoading] = useState(false)
   const [isVideoSheetOpen, setIsVideoSheetOpen] = useState(false)
   const isMobile = useIsMobile()
+
+  // Image attachment state
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
   const [isCompact, setIsCompact] = useState(false)
 
@@ -93,10 +103,40 @@ export default function ChatDetail() {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messageInputContainerRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
   const hasProcessedInitialMessage = useRef(false)
   const chatDataLoaded = useRef(false)
   const isSubmittingRef = useRef(false) // Guard against double submission
+
+  // Image attachment handlers
+  const handleAddImage = useCallback((image: AttachedImage) => {
+    setAttachedImages(prev => [...prev, image])
+  }, [])
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setAttachedImages(prev => prev.filter(img => img.id !== id))
+  }, [])
+
+  // Handle paste events for images
+  const handleImagePaste = useImagePaste(handleAddImage, {
+    enabled: !isLoading,
+    maxImages: 5,
+    currentCount: attachedImages.length,
+  })
+
+  // Attach paste listener to the message input container
+  useEffect(() => {
+    const container = messageInputContainerRef.current
+    if (!container) return
+
+    const onPaste = (e: Event) => {
+      handleImagePaste(e as ClipboardEvent)
+    }
+
+    container.addEventListener('paste', onPaste)
+    return () => container.removeEventListener('paste', onPaste)
+  }, [handleImagePaste])
 
   // Auto-grow textarea
   useEffect(() => {
@@ -145,6 +185,7 @@ export default function ChatDetail() {
     setCurrentPlaybackTime(0)
     setIsLoading(false)
     setLoadingMessage("")
+    setAttachedImages([])
 
     // If it's a new chat (no ID), we don't need to load anything
     if (!chatId) {
@@ -258,18 +299,37 @@ export default function ChatDetail() {
   // Send message function that accepts an optional message parameter
   const sendMessage = useCallback(async (messageToSend: string) => {
     // Use ref-based guard to prevent double submission (more reliable than state)
-    if (!messageToSend.trim() || isLoading || isSubmittingRef.current) return
+    // Allow sending if there's text OR if there are attached images
+    if ((!messageToSend.trim() && attachedImages.length === 0) || isLoading || isSubmittingRef.current) return
     isSubmittingRef.current = true
+
+    // Capture current images before clearing
+    const imagesToSend = [...attachedImages]
+
+    // Use a default message if only images are attached
+    const messageContent = messageToSend.trim() || (imagesToSend.length > 0 ? "What's in this image?" : "")
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
       type: 'user',
-      content: messageToSend.trim(),
+      content: messageContent,
       timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      // Include images if attached
+      ...(imagesToSend.length > 0 && {
+        artifactType: 'image' as const,
+        artifactData: {
+          images: imagesToSend.map(img => ({
+            data: img.data,
+            mimeType: img.mimeType,
+            preview: img.preview,
+          })),
+        },
+      }),
     }
 
     setMessages(prev => [...prev, userMessage])
     setMessage("")
+    setAttachedImages([]) // Clear images after capturing
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -340,6 +400,13 @@ export default function ChatDetail() {
               temperature: 0.7,
               include_transcript: true,
               stream_id: streamId,
+              // Include images if any were attached
+              ...(imagesToSend.length > 0 && {
+                images: imagesToSend.map(img => ({
+                  data: img.data,
+                  mime_type: img.mimeType,
+                })),
+              }),
             }),
             signal: controller.signal,
           })
@@ -628,7 +695,7 @@ export default function ChatDetail() {
       setLoadingMessage("")
       isSubmittingRef.current = false // Reset submission guard
     }
-  }, [isLoading, fetchTranscript, setTitle])
+  }, [isLoading, fetchTranscript, setTitle, attachedImages])
 
   // Wrapper for button click
   const handleSendMessage = useCallback(() => {
@@ -723,7 +790,22 @@ export default function ChatDetail() {
                         {msg.type === 'assistant' ? (
                           <MarkdownRenderer content={msg.content} />
                         ) : (
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <>
+                            {/* Show attached images in user message */}
+                            {msg.artifactType === 'image' && msg.artifactData?.images && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {msg.artifactData.images.map((img, idx) => (
+                                  <img
+                                    key={idx}
+                                    src={img.preview || `data:${img.mimeType};base64,${img.data}`}
+                                    alt={`Attached image ${idx + 1}`}
+                                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          </>
                         )}
                         {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
                           <Button
@@ -782,14 +864,22 @@ export default function ChatDetail() {
 
       {/* Message Input - Unified container */}
       <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="border border-border rounded-xl bg-card shadow-sm">
+        <div ref={messageInputContainerRef} className="border border-border rounded-xl bg-card shadow-sm">
+          {/* Image previews */}
+          {attachedImages.length > 0 && (
+            <ImagePreviewList
+              images={attachedImages}
+              onRemove={handleRemoveImage}
+              disabled={isLoading}
+            />
+          )}
           {/* Textarea area */}
           <div className="px-3 pt-3 pb-2">
             <Textarea
               ref={textareaRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Send a message or paste a YouTube URL..."
+              placeholder={attachedImages.length > 0 ? "Add a message about the image(s)..." : "Send a message or paste a YouTube URL..."}
               className="flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none min-h-[24px]"
               rows={1}
               onKeyDown={(e) => {
@@ -809,6 +899,12 @@ export default function ChatDetail() {
                 onChange={handleModelChange}
                 disabled={isLoading}
                 compact
+              />
+              <ImageAttachment
+                images={attachedImages}
+                onAdd={handleAddImage}
+                disabled={isLoading}
+                maxImages={5}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -844,7 +940,7 @@ export default function ChatDetail() {
               <Button
                 onClick={handleSendMessage}
                 size="icon"
-                disabled={isLoading || !message.trim()}
+                disabled={isLoading || (!message.trim() && attachedImages.length === 0)}
                 className="rounded-full h-8 w-8"
               >
                 {isLoading ? (

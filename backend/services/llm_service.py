@@ -10,11 +10,27 @@ from pydantic import BaseModel # type: ignore
 logger = logging.getLogger(__name__)
 
 
+# Type alias for multimodal content (text + images)
+ContentBlock = dict[str, Any]
+MultimodalContent = Union[str, list[ContentBlock]]
+
+
 class ChatMessage(BaseModel):
-    """A single chat message."""
+    """A single chat message.
+
+    Content can be either:
+    - A simple string for text-only messages
+    - A list of content blocks for multimodal messages (text + images)
+
+    Example multimodal content:
+    [
+        {"type": "text", "text": "What's in this image?"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+    ]
+    """
 
     role: str
-    content: str
+    content: MultimodalContent
     tool_calls: Optional[list[dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
 

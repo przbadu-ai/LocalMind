@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional
-from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,8 +14,6 @@ from database.models import Chat, Message, ToolCallData
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
-from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
-from services.mcp_service import mcp_service
 from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
@@ -33,6 +30,13 @@ config_repo = ConfigRepository()
 active_streams: dict[str, asyncio.Event] = {}
 
 
+class ImageData(BaseModel):
+    """Image data for multimodal chat messages."""
+
+    data: str  # Base64-encoded image data (without data: prefix)
+    mime_type: str = "image/png"  # image/png, image/jpeg, image/gif, image/webp
+
+
 class ChatStreamRequest(BaseModel):
     """Request body for streaming chat."""
 
@@ -45,6 +49,8 @@ class ChatStreamRequest(BaseModel):
     model: Optional[str] = None
     # Stream ID for cancellation support
     stream_id: Optional[str] = None
+    # Optional images for vision models
+    images: Optional[list[ImageData]] = None
 
 
 class CancelStreamRequest(BaseModel):
@@ -78,8 +84,18 @@ async def stream_chat_response(
     temperature: float,
     include_transcript: bool,
     stream_id: Optional[str] = None,
+    images: Optional[list[ImageData]] = None,
 ):
-    """Generate streaming chat response."""
+    """Generate streaming chat response.
+
+    Args:
+        message: The user's text message
+        conversation_id: Optional existing conversation ID
+        temperature: LLM temperature setting
+        include_transcript: Whether to fetch YouTube transcripts
+        stream_id: Optional stream ID for cancellation support
+        images: Optional list of base64-encoded images for vision models
+    """
     # Set up cancellation event
     cancel_event = asyncio.Event()
     if stream_id:
@@ -93,6 +109,16 @@ async def stream_chat_response(
         artifact_type = None
         artifact_data = None
         is_first_message = False
+
+        # Handle images if provided
+        if images:
+            artifact_type = "image"
+            artifact_data = {
+                "images": [{"data": img.data[:100] + "...", "mime_type": img.mime_type} for img in images],
+                "image_count": len(images),
+            }
+            # Note: We store truncated data in artifact_data for reference
+            # The full image data is sent directly to the LLM
 
         if youtube_urls:
             video_info = youtube_urls[0]
@@ -228,8 +254,20 @@ Based on this transcript, provide a helpful, structured response. If this is the
             if msg.id != user_message.id:  # Don't duplicate the current message
                 context_messages.append(ChatMessage(role=msg.role, content=msg.content))
 
-        # Add current message
-        context_messages.append(ChatMessage(role="user", content=message))
+        # Add current message (with images if provided)
+        if images:
+            # Construct multimodal content with text and images
+            user_content: list[dict[str, Any]] = [{"type": "text", "text": message}]
+            for img in images:
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{img.mime_type};base64,{img.data}"
+                    }
+                })
+            context_messages.append(ChatMessage(role="user", content=user_content))
+        else:
+            context_messages.append(ChatMessage(role="user", content=message))
 
         # Get the appropriate LLM service for this chat (may be per-chat model)
         chat_llm_service = get_llm_service_for_chat(chat)
@@ -565,6 +603,7 @@ async def chat_stream(request: ChatStreamRequest):
             temperature=request.temperature,
             include_transcript=request.include_transcript,
             stream_id=request.stream_id,
+            images=request.images,
         ),
         media_type="text/event-stream",
     )
