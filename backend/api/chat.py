@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional
-from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,8 +14,6 @@ from database.models import Chat, Message, ToolCallData
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
-from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
-from services.mcp_service import mcp_service
 from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
@@ -33,6 +30,13 @@ config_repo = ConfigRepository()
 active_streams: dict[str, asyncio.Event] = {}
 
 
+class ImageData(BaseModel):
+    """Image data for multimodal chat messages."""
+
+    data: str  # Base64-encoded image data (without data: prefix)
+    mime_type: str = "image/png"  # image/png, image/jpeg, image/gif, image/webp
+
+
 class ChatStreamRequest(BaseModel):
     """Request body for streaming chat."""
 
@@ -45,6 +49,10 @@ class ChatStreamRequest(BaseModel):
     model: Optional[str] = None
     # Stream ID for cancellation support
     stream_id: Optional[str] = None
+    # Optional images for vision models
+    images: Optional[list[ImageData]] = None
+    # Enable thinking/reasoning output for supported models (deepseek-r1, qwen3, etc.)
+    think: bool = True
 
 
 class CancelStreamRequest(BaseModel):
@@ -78,8 +86,20 @@ async def stream_chat_response(
     temperature: float,
     include_transcript: bool,
     stream_id: Optional[str] = None,
+    images: Optional[list[ImageData]] = None,
+    think: bool = True,
 ):
-    """Generate streaming chat response."""
+    """Generate streaming chat response.
+
+    Args:
+        message: The user's text message
+        conversation_id: Optional existing conversation ID
+        temperature: LLM temperature setting
+        include_transcript: Whether to fetch YouTube transcripts
+        stream_id: Optional stream ID for cancellation support
+        images: Optional list of base64-encoded images for vision models
+        think: Whether to enable thinking/reasoning output for supported models
+    """
     # Set up cancellation event
     cancel_event = asyncio.Event()
     if stream_id:
@@ -93,6 +113,22 @@ async def stream_chat_response(
         artifact_type = None
         artifact_data = None
         is_first_message = False
+
+        # Handle images if provided
+        if images:
+            artifact_type = "image"
+            # Store full image data for persistence and display on reload
+            artifact_data = {
+                "images": [
+                    {
+                        "data": img.data,  # Full base64 data (without data: prefix)
+                        "mimeType": img.mime_type,  # Use camelCase to match frontend
+                        "preview": f"data:{img.mime_type};base64,{img.data}",  # Data URL for easy display
+                    }
+                    for img in images
+                ],
+                "image_count": len(images),
+            }
 
         if youtube_urls:
             video_info = youtube_urls[0]
@@ -228,8 +264,20 @@ Based on this transcript, provide a helpful, structured response. If this is the
             if msg.id != user_message.id:  # Don't duplicate the current message
                 context_messages.append(ChatMessage(role=msg.role, content=msg.content))
 
-        # Add current message
-        context_messages.append(ChatMessage(role="user", content=message))
+        # Add current message (with images if provided)
+        if images:
+            # Construct multimodal content with text and images
+            user_content: list[dict[str, Any]] = [{"type": "text", "text": message}]
+            for img in images:
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{img.mime_type};base64,{img.data}"
+                    }
+                })
+            context_messages.append(ChatMessage(role="user", content=user_content))
+        else:
+            context_messages.append(ChatMessage(role="user", content=message))
 
         # Get the appropriate LLM service for this chat (may be per-chat model)
         chat_llm_service = get_llm_service_for_chat(chat)
@@ -289,9 +337,10 @@ You have access to the following tools. Use them when you need real-time or accu
         }
 
         # Stream LLM response with tool execution loop
-        # Stream LLM response with tool execution loop
         full_response = ""
+        full_thinking = ""  # Track thinking/reasoning content separately
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
+        generation_metrics: Optional[dict[str, Any]] = None  # Track generation metrics
 
         try:
             # Single pass - either stream content OR execute tools (not both in a loop)
@@ -302,6 +351,7 @@ You have access to the following tools. Use them when you need real-time or accu
                 context_messages,
                 temperature=temperature,
                 tools=mcp_tools if mcp_tools else None,
+                think=think,
             ):
                 # Check for cancellation
                 if cancel_event.is_set():
@@ -314,7 +364,17 @@ You have access to the following tools. Use them when you need real-time or accu
                     }
                     return
 
-                if chunk.type == "content" and chunk.content:
+                if chunk.type == "thinking" and chunk.thinking:
+                    # Handle thinking/reasoning content from models like deepseek-r1, qwen3
+                    full_thinking += chunk.thinking
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "thinking",
+                            "content": chunk.thinking,
+                        }),
+                    }
+                elif chunk.type == "content" and chunk.content:
                     full_response += chunk.content
                     yield {
                         "event": "message",
@@ -326,6 +386,9 @@ You have access to the following tools. Use them when you need real-time or accu
                 elif chunk.type == "tool_call" and chunk.tool_call:
                     pending_tool_calls.append(chunk.tool_call)
                 elif chunk.type == "done":
+                    # Capture generation metrics from the done chunk
+                    if chunk.metrics:
+                        generation_metrics = chunk.metrics.model_dump(exclude_none=True)
                     break
 
             # Execute any tool calls that were requested
@@ -437,6 +500,7 @@ You have access to the following tools. Use them when you need real-time or accu
                     context_messages,
                     temperature=temperature,
                     tools=None,  # Don't offer tools on the follow-up call
+                    think=think,
                 ):
                     # Check for cancellation
                     if cancel_event.is_set():
@@ -449,7 +513,17 @@ You have access to the following tools. Use them when you need real-time or accu
                         }
                         return
 
-                    if chunk.type == "content" and chunk.content:
+                    if chunk.type == "thinking" and chunk.thinking:
+                        # Handle thinking/reasoning content
+                        full_thinking += chunk.thinking
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "thinking",
+                                "content": chunk.thinking,
+                            }),
+                        }
+                    elif chunk.type == "content" and chunk.content:
                         full_response += chunk.content
                         yield {
                             "event": "message",
@@ -459,6 +533,9 @@ You have access to the following tools. Use them when you need real-time or accu
                             }),
                         }
                     elif chunk.type == "done":
+                        # Capture generation metrics from the done chunk
+                        if chunk.metrics:
+                            generation_metrics = chunk.metrics.model_dump(exclude_none=True)
                         break
 
         except Exception as e:
@@ -527,13 +604,15 @@ You have access to the following tools. Use them when you need real-time or accu
                 generated_title = message[:50] + ("..." if len(message) > 50 else "")
                 chat_repo.update_title(conversation_id, generated_title)
 
-        # Send done event with title if generated
-        done_data = {
+        # Send done event with title if generated and metrics if available
+        done_data: dict[str, Any] = {
             "type": "done",
             "conversation_id": conversation_id,
         }
         if generated_title:
             done_data["title"] = generated_title
+        if generation_metrics:
+            done_data["metrics"] = generation_metrics
 
         yield {
             "event": "message",
@@ -565,6 +644,8 @@ async def chat_stream(request: ChatStreamRequest):
             temperature=request.temperature,
             include_transcript=request.include_transcript,
             stream_id=request.stream_id,
+            images=request.images,
+            think=request.think,
         ),
         media_type="text/event-stream",
     )

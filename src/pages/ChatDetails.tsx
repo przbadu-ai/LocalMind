@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
@@ -15,7 +16,23 @@ import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
 import { ToolCallAccordion } from "@/components/chat/ToolCallAccordion"
+import {
+  ImageAttachment,
+  ImagePreviewList,
+  useImagePaste,
+  type AttachedImage,
+} from "@/components/chat/ImageAttachment"
 import type { ToolCall } from "@/types/toolCall"
+
+interface GenerationMetrics {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  prompt_eval_duration?: number
+  eval_duration?: number
+  total_duration?: number
+  tokens_per_second?: number
+}
 
 interface ChatMessage {
   id: string
@@ -28,8 +45,10 @@ interface ChatMessage {
     url?: string
     transcript_available?: boolean
     error?: string
+    images?: Array<{ data: string; mimeType: string; preview?: string }>
   }
   toolCalls?: ToolCall[]
+  metrics?: GenerationMetrics
 }
 
 interface TranscriptData {
@@ -71,6 +90,11 @@ export default function ChatDetail() {
   const [isTranscriptLoading, setIsTranscriptLoading] = useState(false)
   const [isVideoSheetOpen, setIsVideoSheetOpen] = useState(false)
   const isMobile = useIsMobile()
+
+  // Image attachment state
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
+  // Thinking/reasoning toggle (for models like deepseek-r1, qwen3)
+  const [thinkingEnabled, setThinkingEnabled] = useState(true)
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
   const [isCompact, setIsCompact] = useState(false)
 
@@ -93,10 +117,40 @@ export default function ChatDetail() {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messageInputContainerRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>(chatId || "")
   const hasProcessedInitialMessage = useRef(false)
   const chatDataLoaded = useRef(false)
   const isSubmittingRef = useRef(false) // Guard against double submission
+
+  // Image attachment handlers
+  const handleAddImage = useCallback((image: AttachedImage) => {
+    setAttachedImages(prev => [...prev, image])
+  }, [])
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setAttachedImages(prev => prev.filter(img => img.id !== id))
+  }, [])
+
+  // Handle paste events for images
+  const handleImagePaste = useImagePaste(handleAddImage, {
+    enabled: !isLoading,
+    maxImages: 5,
+    currentCount: attachedImages.length,
+  })
+
+  // Attach paste listener to the message input container
+  useEffect(() => {
+    const container = messageInputContainerRef.current
+    if (!container) return
+
+    const onPaste = (e: Event) => {
+      handleImagePaste(e as ClipboardEvent)
+    }
+
+    container.addEventListener('paste', onPaste)
+    return () => container.removeEventListener('paste', onPaste)
+  }, [handleImagePaste])
 
   // Auto-grow textarea
   useEffect(() => {
@@ -145,6 +199,7 @@ export default function ChatDetail() {
     setCurrentPlaybackTime(0)
     setIsLoading(false)
     setLoadingMessage("")
+    setAttachedImages([])
 
     // If it's a new chat (no ID), we don't need to load anything
     if (!chatId) {
@@ -255,21 +310,42 @@ export default function ChatDetail() {
     setIsVideoSheetOpen(false)
   }
 
-  // Send message function that accepts an optional message parameter
-  const sendMessage = useCallback(async (messageToSend: string) => {
+  // Send message function that accepts an optional message parameter and optional images
+  const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[]) => {
     // Use ref-based guard to prevent double submission (more reliable than state)
-    if (!messageToSend.trim() || isLoading || isSubmittingRef.current) return
+    // Use override images if provided, otherwise use state
+    const imagesToUse = imagesOverride ?? attachedImages
+    // Allow sending if there's text OR if there are attached images
+    if ((!messageToSend.trim() && imagesToUse.length === 0) || isLoading || isSubmittingRef.current) return
     isSubmittingRef.current = true
+
+    // Capture current images before clearing
+    const imagesToSend = [...imagesToUse]
+
+    // Use a default message if only images are attached
+    const messageContent = messageToSend.trim() || (imagesToSend.length > 0 ? "What's in this image?" : "")
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
       type: 'user',
-      content: messageToSend.trim(),
+      content: messageContent,
       timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      // Include images if attached
+      ...(imagesToSend.length > 0 && {
+        artifactType: 'image' as const,
+        artifactData: {
+          images: imagesToSend.map(img => ({
+            data: img.data,
+            mimeType: img.mimeType,
+            preview: img.preview,
+          })),
+        },
+      }),
     }
 
     setMessages(prev => [...prev, userMessage])
     setMessage("")
+    setAttachedImages([]) // Clear images after capturing
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -340,6 +416,14 @@ export default function ChatDetail() {
               temperature: 0.7,
               include_transcript: true,
               stream_id: streamId,
+              think: thinkingEnabled,  // Enable thinking/reasoning for supported models
+              // Include images if any were attached
+              ...(imagesToSend.length > 0 && {
+                images: imagesToSend.map(img => ({
+                  data: img.data,
+                  mime_type: img.mimeType,
+                })),
+              }),
             }),
             signal: controller.signal,
           })
@@ -353,7 +437,17 @@ export default function ChatDetail() {
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
           let fullResponse = ''
+          let fullThinking = ''  // Accumulate thinking/reasoning content separately
           let hasStartedStreaming = false
+
+          // Helper to build the combined message content
+          const buildMessageContent = () => {
+            // Wrap thinking in <think> tags so MarkdownRenderer displays it in a collapsible section
+            if (fullThinking) {
+              return `<think>${fullThinking}</think>\n\n${fullResponse}`
+            }
+            return fullResponse
+          }
 
           if (reader) {
             while (true) {
@@ -368,9 +462,31 @@ export default function ChatDetail() {
                   try {
                     const data = JSON.parse(line.slice(6))
 
-                    if (data.type === 'content') {
+                    if (data.type === 'thinking') {
+                      // Handle thinking/reasoning content from models like deepseek-r1, qwen3
                       if (!hasStartedStreaming) {
                         hasStartedStreaming = true
+                        setLoadingMessage("Thinking...")
+                      }
+                      fullThinking += data.content
+                      setMessages(prev => {
+                        const existingAssistant = prev.find(m => m.id === assistantMessageId)
+                        if (existingAssistant) {
+                          return prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? { ...msg, content: buildMessageContent() }
+                              : msg
+                          )
+                        }
+                        return prev
+                      })
+                      requestAnimationFrame(scrollToBottom)
+                    } else if (data.type === 'content') {
+                      if (!hasStartedStreaming) {
+                        hasStartedStreaming = true
+                        setLoadingMessage("")
+                      } else if (fullThinking && !fullResponse) {
+                        // Transitioning from thinking to content
                         setLoadingMessage("")
                       }
                       fullResponse += data.content
@@ -382,7 +498,7 @@ export default function ChatDetail() {
                           // Update existing message, preserving toolCalls
                           return prev.map(msg =>
                             msg.id === assistantMessageId
-                              ? { ...msg, content: fullResponse }
+                              ? { ...msg, content: buildMessageContent() }
                               : msg
                           )
                         } else {
@@ -392,7 +508,7 @@ export default function ChatDetail() {
                           if (!prev.some(m => m.id === userMessage.id)) {
                             messages = [...messages, userMessage]
                           }
-                          return [...messages, { ...assistantMessage, content: fullResponse }]
+                          return [...messages, { ...assistantMessage, content: buildMessageContent() }]
                         }
                       })
                       requestAnimationFrame(scrollToBottom)
@@ -522,6 +638,14 @@ export default function ChatDetail() {
                         setCurrentChat(prev => prev ? { ...prev, title: data.title } : prev)
                         window.dispatchEvent(new Event('chats-updated'))
                       }
+                      // Store generation metrics on the assistant message
+                      if (data.metrics) {
+                        setMessages(prev => prev.map(msg =>
+                          msg.id === assistantMessageId
+                            ? { ...msg, metrics: data.metrics }
+                            : msg
+                        ))
+                      }
                     } else if (data.type === 'cancelled') {
                       // Stream was cancelled by user - update any executing tools
                       setMessages(prev => prev.map(msg =>
@@ -628,7 +752,7 @@ export default function ChatDetail() {
       setLoadingMessage("")
       isSubmittingRef.current = false // Reset submission guard
     }
-  }, [isLoading, fetchTranscript, setTitle])
+  }, [isLoading, fetchTranscript, setTitle, attachedImages, thinkingEnabled])
 
   // Wrapper for button click
   const handleSendMessage = useCallback(() => {
@@ -653,10 +777,15 @@ export default function ChatDetail() {
   // Handle initial message from navigation state
   useEffect(() => {
     const initialMessage = location.state?.initialMessage
+    const initialImages = location.state?.initialImages as AttachedImage[] | undefined
     if (initialMessage && chatId && !hasProcessedInitialMessage.current) {
       hasProcessedInitialMessage.current = true
-      // Directly send the message without setting state first
-      sendMessage(initialMessage)
+      // Set images in state for UI consistency
+      if (initialImages && initialImages.length > 0) {
+        setAttachedImages(initialImages)
+      }
+      // Pass images directly to sendMessage to avoid async state issues
+      sendMessage(initialMessage, initialImages)
     }
   }, [location.state, chatId, sendMessage])
 
@@ -723,7 +852,22 @@ export default function ChatDetail() {
                         {msg.type === 'assistant' ? (
                           <MarkdownRenderer content={msg.content} />
                         ) : (
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <>
+                            {/* Show attached images in user message */}
+                            {msg.artifactType === 'image' && msg.artifactData?.images && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {msg.artifactData.images.map((img, idx) => (
+                                  <img
+                                    key={idx}
+                                    src={img.preview || `data:${img.mimeType};base64,${img.data}`}
+                                    alt={`Attached image ${idx + 1}`}
+                                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          </>
                         )}
                         {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
                           <Button
@@ -744,7 +888,31 @@ export default function ChatDetail() {
                         )}
                       </>
                     )}
-                    <p className="text-xs opacity-70 mt-2">{msg.timestamp}</p>
+                    <div className="flex items-center flex-wrap gap-2 mt-2">
+                      <span className="text-xs opacity-70">{msg.timestamp}</span>
+                      {msg.type === 'assistant' && msg.metrics && (
+                        <div className="flex items-center flex-wrap gap-1.5">
+                          {msg.metrics.tokens_per_second && (
+                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Zap className="h-3 w-3" />
+                              {msg.metrics.tokens_per_second.toFixed(1)} tok/s
+                            </Badge>
+                          )}
+                          {msg.metrics.completion_tokens && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Hash className="h-3 w-3" />
+                              {msg.metrics.completion_tokens} tokens
+                            </Badge>
+                          )}
+                          {msg.metrics.total_duration && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Clock className="h-3 w-3" />
+                              {msg.metrics.total_duration.toFixed(1)}s
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -782,14 +950,22 @@ export default function ChatDetail() {
 
       {/* Message Input - Unified container */}
       <div className="flex-shrink-0 p-4 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="border border-border rounded-xl bg-card shadow-sm">
+        <div ref={messageInputContainerRef} className="border border-border rounded-xl bg-card shadow-sm">
+          {/* Image previews */}
+          {attachedImages.length > 0 && (
+            <ImagePreviewList
+              images={attachedImages}
+              onRemove={handleRemoveImage}
+              disabled={isLoading}
+            />
+          )}
           {/* Textarea area */}
           <div className="px-3 pt-3 pb-2">
             <Textarea
               ref={textareaRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Send a message or paste a YouTube URL..."
+              placeholder={attachedImages.length > 0 ? "Add a message about the image(s)..." : "Send a message or paste a YouTube URL..."}
               className="flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none min-h-[24px]"
               rows={1}
               onKeyDown={(e) => {
@@ -810,6 +986,22 @@ export default function ChatDetail() {
                 disabled={isLoading}
                 compact
               />
+              <ImageAttachment
+                images={attachedImages}
+                onAdd={handleAddImage}
+                disabled={isLoading}
+                maxImages={5}
+              />
+              <Button
+                variant={thinkingEnabled ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setThinkingEnabled(!thinkingEnabled)}
+                disabled={isLoading}
+                className="flex items-center gap-1 h-8"
+                title={thinkingEnabled ? "Thinking enabled - click to disable" : "Thinking disabled - click to enable"}
+              >
+                <Brain className={`h-4 w-4 ${thinkingEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
+              </Button>
             </div>
             <div className="flex items-center gap-2">
               {(isLoading || isExecutingTools) && (
@@ -844,7 +1036,7 @@ export default function ChatDetail() {
               <Button
                 onClick={handleSendMessage}
                 size="icon"
-                disabled={isLoading || !message.trim()}
+                disabled={isLoading || (!message.trim() && attachedImages.length === 0)}
                 className="rounded-full h-8 w-8"
               >
                 {isLoading ? (

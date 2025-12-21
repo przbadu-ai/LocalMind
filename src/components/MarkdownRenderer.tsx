@@ -9,12 +9,12 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-interface ThinkingBlockProps {
+interface ReasoningBlockProps {
   content: string;
   defaultOpen?: boolean;
 }
 
-function ThinkingBlock({ content, defaultOpen = false }: ThinkingBlockProps) {
+function ReasoningBlock({ content, defaultOpen = false }: ReasoningBlockProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -29,7 +29,7 @@ function ThinkingBlock({ content, defaultOpen = false }: ThinkingBlockProps) {
           <ChevronRight className="h-4 w-4" />
         )}
         <Brain className="h-4 w-4" />
-        <span>Thinking</span>
+        <span>Reasoning</span>
         {!isOpen && (
           <span className="text-xs text-muted-foreground/60 ml-2">
             (click to expand)
@@ -130,17 +130,25 @@ const markdownComponents = {
   ),
 };
 
-// Patterns to detect thinking blocks
-const THINKING_PATTERNS = [
-  // <think>...</think> tags
-  { start: /<think>/i, end: /<\/think>/i, tagStart: '<think>', tagEnd: '</think>' },
+// Patterns to detect reasoning/thinking blocks
+// Based on Jan AI's implementation: https://github.com/janhq/jan/blob/main/web-app/src/containers/ThreadContent.tsx
+// Uses capturing groups to extract content between tags, supports multiline with [\s\S]*?
+// qwen3 models use <think>...</think> tags for reasoning output
+const REASONING_REGEX_PATTERNS = [
+  // <think>...</think> tags (qwen3 and other reasoning models)
+  /<think>([\s\S]*?)<\/think>/gi,
   // <thinking>...</thinking> tags
-  { start: /<thinking>/i, end: /<\/thinking>/i, tagStart: '<thinking>', tagEnd: '</thinking>' },
-  // Common LLM thinking patterns - detect by content patterns
+  /<thinking>([\s\S]*?)<\/thinking>/gi,
+  // <reasoning>...</reasoning> tags
+  /<reasoning>([\s\S]*?)<\/reasoning>/gi,
+  // DeepSeek-R1 / qwen3-coder style: <|begin_of_thought|>...<|end_of_thought|>
+  /<\|begin_of_thought\|>([\s\S]*?)<\|end_of_thought\|>/gi,
+  // Alternative DeepSeek format
+  /<\|thinking\|>([\s\S]*?)<\|\/thinking\|>/gi,
 ];
 
-// Heuristic patterns that suggest content is "thinking" rather than actual response
-const THINKING_HEURISTICS = [
+// Heuristic patterns that suggest content is "reasoning" rather than actual response
+const REASONING_HEURISTICS = [
   /^The user has shared a video with the ID of/i,
   /^Let me analyze/i,
   /^Let's analyze/i,
@@ -150,64 +158,84 @@ const THINKING_HEURISTICS = [
   /^Let me think/i,
   /^Thinking about/i,
   /^Analyzing the/i,
+  // Additional reasoning patterns
+  /^I need to think/i,
+  /^Let me reason/i,
+  /^My reasoning/i,
+  /^Step by step/i,
+  /^Breaking this down/i,
+  /^Let me work through/i,
+  /^I should consider/i,
+  /^To solve this/i,
+  /^The key here is/i,
 ];
 
 interface ContentPart {
-  type: 'thinking' | 'content';
+  type: 'reasoning' | 'content';
   text: string;
 }
 
 function parseContent(content: string): ContentPart[] {
   const parts: ContentPart[] = [];
-  let remaining = content;
 
-  // First, check for explicit thinking tags
-  for (const pattern of THINKING_PATTERNS) {
-    const startMatch = remaining.match(pattern.start);
-    if (startMatch) {
-      const startIndex = startMatch.index!;
-      const afterStart = remaining.substring(startIndex + pattern.tagStart.length);
-      const endMatch = afterStart.match(pattern.end);
+  // Try each regex pattern to find reasoning blocks
+  for (const pattern of REASONING_REGEX_PATTERNS) {
+    // Reset lastIndex for global regex
+    pattern.lastIndex = 0;
 
-      if (endMatch) {
-        // Add content before thinking block
-        if (startIndex > 0) {
-          const beforeContent = remaining.substring(0, startIndex).trim();
+    // Check if this pattern matches
+    if (pattern.test(content)) {
+      // Reset again after test
+      pattern.lastIndex = 0;
+
+      let lastIndex = 0;
+      let match;
+
+      while ((match = pattern.exec(content)) !== null) {
+        // Add content before this reasoning block
+        if (match.index > lastIndex) {
+          const beforeContent = content.substring(lastIndex, match.index).trim();
           if (beforeContent) {
             parts.push({ type: 'content', text: beforeContent });
           }
         }
 
-        // Add thinking block
-        const thinkingContent = afterStart.substring(0, endMatch.index!).trim();
-        if (thinkingContent) {
-          parts.push({ type: 'thinking', text: thinkingContent });
+        // Add reasoning block (captured group 1)
+        const reasoningContent = match[1].trim();
+        if (reasoningContent) {
+          parts.push({ type: 'reasoning', text: reasoningContent });
         }
 
-        // Continue with remaining content
-        remaining = afterStart.substring(endMatch.index! + pattern.tagEnd.length).trim();
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add remaining content after last reasoning block
+      if (lastIndex < content.length) {
+        const remainingContent = content.substring(lastIndex).trim();
+        if (remainingContent) {
+          parts.push({ type: 'content', text: remainingContent });
+        }
+      }
+
+      // If we found matches, return the parts
+      if (parts.length > 0) {
+        return parts;
       }
     }
-  }
-
-  // If we found thinking tags, add remaining content
-  if (parts.length > 0 && remaining) {
-    parts.push({ type: 'content', text: remaining });
-    return parts;
   }
 
   // No explicit tags found - check for heuristic patterns
   // Look for content that appears to be internal reasoning followed by actual response
   const lines = content.split('\n\n');
 
-  // Check if the first paragraph looks like thinking
+  // Check if the first paragraph looks like reasoning
   if (lines.length > 1) {
     const firstPara = lines[0].trim();
-    const isThinking = THINKING_HEURISTICS.some(pattern => pattern.test(firstPara));
+    const isReasoning = REASONING_HEURISTICS.some(pattern => pattern.test(firstPara));
 
-    if (isThinking) {
+    if (isReasoning) {
       // Find where the actual response starts (usually after a more definitive statement)
-      let thinkingEnd = 0;
+      let reasoningEnd = 0;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         // Look for response indicators
@@ -219,19 +247,19 @@ function parseContent(content: string): ContentPart[] {
           line.startsWith('Based on') ||
           line.match(/^[0-9]+\./) // Numbered list start
         ) {
-          thinkingEnd = i;
+          reasoningEnd = i;
           break;
         }
-        thinkingEnd = i + 1;
+        reasoningEnd = i + 1;
       }
 
-      // Only treat as thinking if it's not the entire content
-      if (thinkingEnd > 0 && thinkingEnd < lines.length) {
-        const thinkingContent = lines.slice(0, thinkingEnd).join('\n\n').trim();
-        const mainContent = lines.slice(thinkingEnd).join('\n\n').trim();
+      // Only treat as reasoning if it's not the entire content
+      if (reasoningEnd > 0 && reasoningEnd < lines.length) {
+        const reasoningContent = lines.slice(0, reasoningEnd).join('\n\n').trim();
+        const mainContent = lines.slice(reasoningEnd).join('\n\n').trim();
 
-        if (thinkingContent && mainContent) {
-          parts.push({ type: 'thinking', text: thinkingContent });
+        if (reasoningContent && mainContent) {
+          parts.push({ type: 'reasoning', text: reasoningContent });
           parts.push({ type: 'content', text: mainContent });
           return parts;
         }
@@ -239,7 +267,7 @@ function parseContent(content: string): ContentPart[] {
     }
   }
 
-  // No thinking detected - return as-is
+  // No reasoning detected - return as-is
   return [{ type: 'content', text: content }];
 }
 
@@ -249,8 +277,8 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
   return (
     <div className={className}>
       {parts.map((part, index) => {
-        if (part.type === 'thinking') {
-          return <ThinkingBlock key={index} content={part.text} />;
+        if (part.type === 'reasoning') {
+          return <ReasoningBlock key={index} content={part.text} />;
         }
         return (
           <ReactMarkdown
