@@ -296,15 +296,17 @@ export default function ChatDetail() {
     setIsVideoSheetOpen(false)
   }
 
-  // Send message function that accepts an optional message parameter
-  const sendMessage = useCallback(async (messageToSend: string) => {
+  // Send message function that accepts an optional message parameter and optional images
+  const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[]) => {
     // Use ref-based guard to prevent double submission (more reliable than state)
+    // Use override images if provided, otherwise use state
+    const imagesToUse = imagesOverride ?? attachedImages
     // Allow sending if there's text OR if there are attached images
-    if ((!messageToSend.trim() && attachedImages.length === 0) || isLoading || isSubmittingRef.current) return
+    if ((!messageToSend.trim() && imagesToUse.length === 0) || isLoading || isSubmittingRef.current) return
     isSubmittingRef.current = true
 
     // Capture current images before clearing
-    const imagesToSend = [...attachedImages]
+    const imagesToSend = [...imagesToUse]
 
     // Use a default message if only images are attached
     const messageContent = messageToSend.trim() || (imagesToSend.length > 0 ? "What's in this image?" : "")
@@ -720,10 +722,15 @@ export default function ChatDetail() {
   // Handle initial message from navigation state
   useEffect(() => {
     const initialMessage = location.state?.initialMessage
+    const initialImages = location.state?.initialImages as AttachedImage[] | undefined
     if (initialMessage && chatId && !hasProcessedInitialMessage.current) {
       hasProcessedInitialMessage.current = true
-      // Directly send the message without setting state first
-      sendMessage(initialMessage)
+      // Set images in state for UI consistency
+      if (initialImages && initialImages.length > 0) {
+        setAttachedImages(initialImages)
+      }
+      // Pass images directly to sendMessage to avoid async state issues
+      sendMessage(initialMessage, initialImages)
     }
   }, [location.state, chatId, sendMessage])
 

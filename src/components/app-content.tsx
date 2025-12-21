@@ -1,29 +1,60 @@
-import { useState, useRef, useEffect } from "react"
-import { Send, Code, PenTool, Sparkles, Youtube } from "lucide-react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Send, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useNavigate } from "react-router-dom"
 import { chatService } from "@/services/chat-service"
 import { ModelSelector } from "@/components/ModelSelector"
-
-const actionButtons = [
-  { icon: Code, label: "Code", variant: "outline" as const },
-  { icon: PenTool, label: "Write", variant: "outline" as const },
-  { icon: Youtube, label: "YouTube", variant: "outline" as const },
-]
+import {
+  ImageAttachment,
+  ImagePreviewList,
+  useImagePaste,
+  type AttachedImage,
+} from "@/components/chat/ImageAttachment"
 
 export function MainContent() {
   const [message, setMessage] = useState("")
   const [isCreatingChat, setIsCreatingChat] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messageInputContainerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
   const handleModelChange = (provider: string, model: string) => {
     setSelectedProvider(provider)
     setSelectedModel(model)
   }
+
+  // Image attachment handlers
+  const handleAddImage = useCallback((image: AttachedImage) => {
+    setAttachedImages(prev => [...prev, image])
+  }, [])
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setAttachedImages(prev => prev.filter(img => img.id !== id))
+  }, [])
+
+  // Handle paste events for images
+  const handleImagePaste = useImagePaste(handleAddImage, {
+    enabled: !isCreatingChat,
+    maxImages: 5,
+    currentCount: attachedImages.length,
+  })
+
+  // Attach paste listener to the message input container
+  useEffect(() => {
+    const container = messageInputContainerRef.current
+    if (!container) return
+
+    const onPaste = (e: Event) => {
+      handleImagePaste(e as ClipboardEvent)
+    }
+
+    container.addEventListener('paste', onPaste)
+    return () => container.removeEventListener('paste', onPaste)
+  }, [handleImagePaste])
 
   // Auto-grow textarea
   useEffect(() => {
@@ -42,30 +73,41 @@ export function MainContent() {
   }, [message])
 
   const handleSendMessage = async () => {
-    if (message.trim() && !isCreatingChat) {
-      setIsCreatingChat(true)
-      try {
-        // Create a new chat with the message as the title and selected model
-        const newChat = await chatService.createChat({
-          title: message.trim().substring(0, 50),
-          model: selectedModel || undefined,
-          provider: selectedProvider || undefined,
-        })
+    // Allow sending if there's text OR if there are attached images
+    if ((!message.trim() && attachedImages.length === 0) || isCreatingChat) return
+    
+    setIsCreatingChat(true)
+    try {
+      // Use a default message if only images are attached
+      const messageContent = message.trim() || (attachedImages.length > 0 ? "What's in this image?" : "")
+      
+      // Create a new chat with the message as the title and selected model
+      const newChat = await chatService.createChat({
+        title: messageContent.substring(0, 50),
+        model: selectedModel || undefined,
+        provider: selectedProvider || undefined,
+      })
 
-        // Reset textarea height
-        setMessage("")
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto'
-        }
+      // Capture current images before clearing
+      const imagesToSend = [...attachedImages]
 
-        // Navigate to the chat detail page with the message in state
-        navigate(`/chats/${newChat.id}`, {
-          state: { initialMessage: message.trim() }
-        })
-      } catch (error) {
-        console.error('Failed to create chat:', error)
-        setIsCreatingChat(false)
+      // Reset textarea height and clear state
+      setMessage("")
+      setAttachedImages([])
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
       }
+
+      // Navigate to the chat detail page with the message and images in state
+      navigate(`/chats/${newChat.id}`, {
+        state: { 
+          initialMessage: messageContent,
+          initialImages: imagesToSend
+        }
+      })
+    } catch (error) {
+      console.error('Failed to create chat:', error)
+      setIsCreatingChat(false)
     }
   }
 
@@ -92,7 +134,13 @@ export function MainContent() {
 
           {/* Input Section - Unified container */}
           <div className="space-y-4">
-            <div className="border border-border rounded-xl bg-card shadow-sm">
+            <div className="border border-border rounded-xl bg-card shadow-sm" ref={messageInputContainerRef}>
+              {/* Image previews */}
+              <ImagePreviewList
+                images={attachedImages}
+                onRemove={handleRemoveImage}
+                disabled={isCreatingChat}
+              />
               {/* Textarea area */}
               <div className="p-4">
                 <Textarea
@@ -109,17 +157,13 @@ export function MainContent() {
               {/* Bottom bar with actions and send button */}
               <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
                 <div className="flex items-center gap-2">
-                  {actionButtons.map((action, index) => (
-                    <Button
-                      key={index}
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-3 gap-2 text-muted-foreground hover:text-foreground"
-                    >
-                      <action.icon className="h-4 w-4" />
-                      {action.label}
-                    </Button>
-                  ))}
+                  {/* Image attachment button */}
+                  <ImageAttachment
+                    images={attachedImages}
+                    onAdd={handleAddImage}
+                    disabled={isCreatingChat}
+                    maxImages={5}
+                  />
                   {/* Divider */}
                   <div className="h-5 w-px bg-border/50 mx-1" />
                   {/* Model selector */}
@@ -136,7 +180,7 @@ export function MainContent() {
                   size="icon"
                   className="rounded-full h-9 w-9"
                   onClick={handleSendMessage}
-                  disabled={isCreatingChat || !message.trim()}
+                  disabled={isCreatingChat || (!message.trim() && attachedImages.length === 0)}
                 >
                   <Send className="h-4 w-4" />
                 </Button>
