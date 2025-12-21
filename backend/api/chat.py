@@ -51,6 +51,8 @@ class ChatStreamRequest(BaseModel):
     stream_id: Optional[str] = None
     # Optional images for vision models
     images: Optional[list[ImageData]] = None
+    # Enable thinking/reasoning output for supported models (deepseek-r1, qwen3, etc.)
+    think: bool = True
 
 
 class CancelStreamRequest(BaseModel):
@@ -85,6 +87,7 @@ async def stream_chat_response(
     include_transcript: bool,
     stream_id: Optional[str] = None,
     images: Optional[list[ImageData]] = None,
+    think: bool = True,
 ):
     """Generate streaming chat response.
 
@@ -95,6 +98,7 @@ async def stream_chat_response(
         include_transcript: Whether to fetch YouTube transcripts
         stream_id: Optional stream ID for cancellation support
         images: Optional list of base64-encoded images for vision models
+        think: Whether to enable thinking/reasoning output for supported models
     """
     # Set up cancellation event
     cancel_event = asyncio.Event()
@@ -333,8 +337,8 @@ You have access to the following tools. Use them when you need real-time or accu
         }
 
         # Stream LLM response with tool execution loop
-        # Stream LLM response with tool execution loop
         full_response = ""
+        full_thinking = ""  # Track thinking/reasoning content separately
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
 
         try:
@@ -346,6 +350,7 @@ You have access to the following tools. Use them when you need real-time or accu
                 context_messages,
                 temperature=temperature,
                 tools=mcp_tools if mcp_tools else None,
+                think=think,
             ):
                 # Check for cancellation
                 if cancel_event.is_set():
@@ -358,7 +363,17 @@ You have access to the following tools. Use them when you need real-time or accu
                     }
                     return
 
-                if chunk.type == "content" and chunk.content:
+                if chunk.type == "thinking" and chunk.thinking:
+                    # Handle thinking/reasoning content from models like deepseek-r1, qwen3
+                    full_thinking += chunk.thinking
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "thinking",
+                            "content": chunk.thinking,
+                        }),
+                    }
+                elif chunk.type == "content" and chunk.content:
                     full_response += chunk.content
                     yield {
                         "event": "message",
@@ -481,6 +496,7 @@ You have access to the following tools. Use them when you need real-time or accu
                     context_messages,
                     temperature=temperature,
                     tools=None,  # Don't offer tools on the follow-up call
+                    think=think,
                 ):
                     # Check for cancellation
                     if cancel_event.is_set():
@@ -493,7 +509,17 @@ You have access to the following tools. Use them when you need real-time or accu
                         }
                         return
 
-                    if chunk.type == "content" and chunk.content:
+                    if chunk.type == "thinking" and chunk.thinking:
+                        # Handle thinking/reasoning content
+                        full_thinking += chunk.thinking
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "thinking",
+                                "content": chunk.thinking,
+                            }),
+                        }
+                    elif chunk.type == "content" and chunk.content:
                         full_response += chunk.content
                         yield {
                             "event": "message",
@@ -610,6 +636,7 @@ async def chat_stream(request: ChatStreamRequest):
             include_transcript=request.include_transcript,
             stream_id=request.stream_id,
             images=request.images,
+            think=request.think,
         ),
         media_type="text/event-stream",
     )

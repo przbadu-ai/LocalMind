@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
@@ -81,6 +81,8 @@ export default function ChatDetail() {
 
   // Image attachment state
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
+  // Thinking/reasoning toggle (for models like deepseek-r1, qwen3)
+  const [thinkingEnabled, setThinkingEnabled] = useState(true)
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
   const [isCompact, setIsCompact] = useState(false)
 
@@ -402,6 +404,7 @@ export default function ChatDetail() {
               temperature: 0.7,
               include_transcript: true,
               stream_id: streamId,
+              think: thinkingEnabled,  // Enable thinking/reasoning for supported models
               // Include images if any were attached
               ...(imagesToSend.length > 0 && {
                 images: imagesToSend.map(img => ({
@@ -422,7 +425,17 @@ export default function ChatDetail() {
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
           let fullResponse = ''
+          let fullThinking = ''  // Accumulate thinking/reasoning content separately
           let hasStartedStreaming = false
+
+          // Helper to build the combined message content
+          const buildMessageContent = () => {
+            // Wrap thinking in <think> tags so MarkdownRenderer displays it in a collapsible section
+            if (fullThinking) {
+              return `<think>${fullThinking}</think>\n\n${fullResponse}`
+            }
+            return fullResponse
+          }
 
           if (reader) {
             while (true) {
@@ -437,9 +450,31 @@ export default function ChatDetail() {
                   try {
                     const data = JSON.parse(line.slice(6))
 
-                    if (data.type === 'content') {
+                    if (data.type === 'thinking') {
+                      // Handle thinking/reasoning content from models like deepseek-r1, qwen3
                       if (!hasStartedStreaming) {
                         hasStartedStreaming = true
+                        setLoadingMessage("Thinking...")
+                      }
+                      fullThinking += data.content
+                      setMessages(prev => {
+                        const existingAssistant = prev.find(m => m.id === assistantMessageId)
+                        if (existingAssistant) {
+                          return prev.map(msg =>
+                            msg.id === assistantMessageId
+                              ? { ...msg, content: buildMessageContent() }
+                              : msg
+                          )
+                        }
+                        return prev
+                      })
+                      requestAnimationFrame(scrollToBottom)
+                    } else if (data.type === 'content') {
+                      if (!hasStartedStreaming) {
+                        hasStartedStreaming = true
+                        setLoadingMessage("")
+                      } else if (fullThinking && !fullResponse) {
+                        // Transitioning from thinking to content
                         setLoadingMessage("")
                       }
                       fullResponse += data.content
@@ -451,7 +486,7 @@ export default function ChatDetail() {
                           // Update existing message, preserving toolCalls
                           return prev.map(msg =>
                             msg.id === assistantMessageId
-                              ? { ...msg, content: fullResponse }
+                              ? { ...msg, content: buildMessageContent() }
                               : msg
                           )
                         } else {
@@ -461,7 +496,7 @@ export default function ChatDetail() {
                           if (!prev.some(m => m.id === userMessage.id)) {
                             messages = [...messages, userMessage]
                           }
-                          return [...messages, { ...assistantMessage, content: fullResponse }]
+                          return [...messages, { ...assistantMessage, content: buildMessageContent() }]
                         }
                       })
                       requestAnimationFrame(scrollToBottom)
@@ -697,7 +732,7 @@ export default function ChatDetail() {
       setLoadingMessage("")
       isSubmittingRef.current = false // Reset submission guard
     }
-  }, [isLoading, fetchTranscript, setTitle, attachedImages])
+  }, [isLoading, fetchTranscript, setTitle, attachedImages, thinkingEnabled])
 
   // Wrapper for button click
   const handleSendMessage = useCallback(() => {
@@ -913,6 +948,16 @@ export default function ChatDetail() {
                 disabled={isLoading}
                 maxImages={5}
               />
+              <Button
+                variant={thinkingEnabled ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setThinkingEnabled(!thinkingEnabled)}
+                disabled={isLoading}
+                className="flex items-center gap-1 h-8"
+                title={thinkingEnabled ? "Thinking enabled - click to disable" : "Thinking disabled - click to enable"}
+              >
+                <Brain className={`h-4 w-4 ${thinkingEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
+              </Button>
             </div>
             <div className="flex items-center gap-2">
               {(isLoading || isExecutingTools) && (

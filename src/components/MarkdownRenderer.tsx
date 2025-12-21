@@ -131,17 +131,20 @@ const markdownComponents = {
 };
 
 // Patterns to detect reasoning/thinking blocks
-const REASONING_PATTERNS = [
-  // <think>...</think> tags (common in many reasoning models)
-  { start: /<think>/i, end: /<\/think>/i, tagStart: '<think>', tagEnd: '</think>' },
+// Based on Jan AI's implementation: https://github.com/janhq/jan/blob/main/web-app/src/containers/ThreadContent.tsx
+// Uses capturing groups to extract content between tags, supports multiline with [\s\S]*?
+// qwen3 models use <think>...</think> tags for reasoning output
+const REASONING_REGEX_PATTERNS = [
+  // <think>...</think> tags (qwen3 and other reasoning models)
+  /<think>([\s\S]*?)<\/think>/gi,
   // <thinking>...</thinking> tags
-  { start: /<thinking>/i, end: /<\/thinking>/i, tagStart: '<thinking>', tagEnd: '</thinking>' },
+  /<thinking>([\s\S]*?)<\/thinking>/gi,
   // <reasoning>...</reasoning> tags
-  { start: /<reasoning>/i, end: /<\/reasoning>/i, tagStart: '<reasoning>', tagEnd: '</reasoning>' },
+  /<reasoning>([\s\S]*?)<\/reasoning>/gi,
   // DeepSeek-R1 / qwen3-coder style: <|begin_of_thought|>...<|end_of_thought|>
-  { start: /<\|begin_of_thought\|>/i, end: /<\|end_of_thought\|>/i, tagStart: '<|begin_of_thought|>', tagEnd: '<|end_of_thought|>' },
+  /<\|begin_of_thought\|>([\s\S]*?)<\|end_of_thought\|>/gi,
   // Alternative DeepSeek format
-  { start: /<\|thinking\|>/i, end: /<\|\/thinking\|>/i, tagStart: '<|thinking|>', tagEnd: '<|/thinking|>' },
+  /<\|thinking\|>([\s\S]*?)<\|\/thinking\|>/gi,
 ];
 
 // Heuristic patterns that suggest content is "reasoning" rather than actual response
@@ -174,41 +177,51 @@ interface ContentPart {
 
 function parseContent(content: string): ContentPart[] {
   const parts: ContentPart[] = [];
-  let remaining = content;
 
-  // First, check for explicit reasoning tags
-  for (const pattern of REASONING_PATTERNS) {
-    const startMatch = remaining.match(pattern.start);
-    if (startMatch) {
-      const startIndex = startMatch.index!;
-      const afterStart = remaining.substring(startIndex + pattern.tagStart.length);
-      const endMatch = afterStart.match(pattern.end);
+  // Try each regex pattern to find reasoning blocks
+  for (const pattern of REASONING_REGEX_PATTERNS) {
+    // Reset lastIndex for global regex
+    pattern.lastIndex = 0;
 
-      if (endMatch) {
-        // Add content before thinking block
-        if (startIndex > 0) {
-          const beforeContent = remaining.substring(0, startIndex).trim();
+    // Check if this pattern matches
+    if (pattern.test(content)) {
+      // Reset again after test
+      pattern.lastIndex = 0;
+
+      let lastIndex = 0;
+      let match;
+
+      while ((match = pattern.exec(content)) !== null) {
+        // Add content before this reasoning block
+        if (match.index > lastIndex) {
+          const beforeContent = content.substring(lastIndex, match.index).trim();
           if (beforeContent) {
             parts.push({ type: 'content', text: beforeContent });
           }
         }
 
-        // Add reasoning block
-        const reasoningContent = afterStart.substring(0, endMatch.index!).trim();
+        // Add reasoning block (captured group 1)
+        const reasoningContent = match[1].trim();
         if (reasoningContent) {
           parts.push({ type: 'reasoning', text: reasoningContent });
         }
 
-        // Continue with remaining content
-        remaining = afterStart.substring(endMatch.index! + pattern.tagEnd.length).trim();
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add remaining content after last reasoning block
+      if (lastIndex < content.length) {
+        const remainingContent = content.substring(lastIndex).trim();
+        if (remainingContent) {
+          parts.push({ type: 'content', text: remainingContent });
+        }
+      }
+
+      // If we found matches, return the parts
+      if (parts.length > 0) {
+        return parts;
       }
     }
-  }
-
-  // If we found reasoning tags, add remaining content
-  if (parts.length > 0 && remaining) {
-    parts.push({ type: 'content', text: remaining });
-    return parts;
   }
 
   // No explicit tags found - check for heuristic patterns
