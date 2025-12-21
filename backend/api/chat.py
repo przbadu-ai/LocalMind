@@ -113,12 +113,18 @@ async def stream_chat_response(
         # Handle images if provided
         if images:
             artifact_type = "image"
+            # Store full image data for persistence and display on reload
             artifact_data = {
-                "images": [{"data": img.data[:100] + "...", "mime_type": img.mime_type} for img in images],
+                "images": [
+                    {
+                        "data": img.data,  # Full base64 data (without data: prefix)
+                        "mimeType": img.mime_type,  # Use camelCase to match frontend
+                        "preview": f"data:{img.mime_type};base64,{img.data}",  # Data URL for easy display
+                    }
+                    for img in images
+                ],
                 "image_count": len(images),
             }
-            # Note: We store truncated data in artifact_data for reference
-            # The full image data is sent directly to the LLM
 
         if youtube_urls:
             video_info = youtube_urls[0]

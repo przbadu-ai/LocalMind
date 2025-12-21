@@ -47,6 +47,8 @@ export interface Message {
     url?: string;
     transcript_available?: boolean;
     error?: string;
+    images?: Array<{ data: string; mimeType: string; preview?: string }>;
+    image_count?: number;
   };
   tool_calls?: ToolCallData[];
 }
