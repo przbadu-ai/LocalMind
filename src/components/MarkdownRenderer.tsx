@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronRight, Brain } from 'lucide-react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { ChevronDown, ChevronRight, Brain, Copy, Check } from 'lucide-react';
 
 interface MarkdownRendererProps {
   content: string;
@@ -50,6 +51,101 @@ function ReasoningBlock({ content, defaultOpen = false }: ReasoningBlockProps) {
   );
 }
 
+// CodeBlock component with syntax highlighting, line numbers, and copy button
+interface CodeBlockProps {
+  children?: React.ReactNode;
+  className?: string;
+  inline?: boolean;
+}
+
+function CodeBlock({ children, className, inline }: CodeBlockProps) {
+  const [copied, setCopied] = useState(false);
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  );
+
+  // Check for dark mode changes
+  useEffect(() => {
+    const checkDark = () => setIsDark(document.documentElement.classList.contains('dark'));
+    checkDark();
+    const observer = new MutationObserver(checkDark);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  // Extract language from className (e.g., "language-typescript" -> "typescript")
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+
+  // Get code string
+  const codeString = String(children).replace(/\n$/, '');
+
+  // Inline code
+  if (inline || !language) {
+    return (
+      <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
+        {children}
+      </code>
+    );
+  }
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(codeString);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
+
+  return (
+    <div className="code-block group my-4 rounded-lg overflow-hidden border border-border">
+      {/* Header with language badge and copy button */}
+      <div className="flex items-center justify-between px-4 py-2 bg-muted/50 border-b border-border">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          {language}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-green-500" />
+              <span className="text-green-500">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Code with syntax highlighting */}
+      <SyntaxHighlighter
+        style={isDark ? oneDark : oneLight}
+        language={language}
+        showLineNumbers={true}
+        customStyle={{
+          margin: 0,
+          borderRadius: 0,
+          fontSize: '0.75rem',
+          lineHeight: '1.5',
+        }}
+        lineNumberStyle={{
+          minWidth: '2.5em',
+          paddingRight: '1em',
+          color: isDark ? '#6e7681' : '#8b949e',
+          borderRight: '1px solid',
+          borderColor: isDark ? '#30363d' : '#d0d7de',
+          marginRight: '1em',
+        }}
+      >
+        {codeString}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
 // Shared markdown components
 const markdownComponents = {
   p: ({ children }: any) => (
@@ -79,23 +175,13 @@ const markdownComponents = {
       {children}
     </blockquote>
   ),
-  code: ({ children, className, ...props }: any) => {
-    const isInline = !('data-language' in props);
-    if (isInline) {
-      return (
-        <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
-          {children}
-        </code>
-      );
-    }
-    return (
-      <pre className="bg-muted p-3 rounded-lg overflow-x-auto my-3">
-        <code className={cn("font-mono text-xs", className)}>
-          {children}
-        </code>
-      </pre>
-    );
-  },
+  code: ({ children, className, inline }: any) => (
+    <CodeBlock className={className} inline={inline}>
+      {children}
+    </CodeBlock>
+  ),
+  // Let CodeBlock handle the pre wrapper for block code
+  pre: ({ children }: any) => <>{children}</>,
   h1: ({ children }: any) => (
     <h1 className="text-xl font-bold mb-3 mt-4">{children}</h1>
   ),
