@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
@@ -887,21 +888,27 @@ export default function ChatDetail() {
                         )}
                       </>
                     )}
-                    <div className="flex items-center gap-2 mt-2">
-                      <p className="text-xs opacity-70">{msg.timestamp}</p>
+                    <div className="flex items-center flex-wrap gap-2 mt-2">
+                      <span className="text-xs opacity-70">{msg.timestamp}</span>
                       {msg.type === 'assistant' && msg.metrics && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <div className="flex items-center flex-wrap gap-1.5">
                           {msg.metrics.tokens_per_second && (
-                            <span className="flex items-center gap-1">
-                              <span className="opacity-50">•</span>
-                              <span>{msg.metrics.tokens_per_second.toFixed(1)} tok/s</span>
-                            </span>
+                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Zap className="h-3 w-3" />
+                              {msg.metrics.tokens_per_second.toFixed(1)} tok/s
+                            </Badge>
                           )}
                           {msg.metrics.completion_tokens && (
-                            <span className="flex items-center gap-1">
-                              <span className="opacity-50">•</span>
-                              <span>{msg.metrics.completion_tokens} tokens</span>
-                            </span>
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Hash className="h-3 w-3" />
+                              {msg.metrics.completion_tokens} tokens
+                            </Badge>
+                          )}
+                          {msg.metrics.total_duration && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                              <Clock className="h-3 w-3" />
+                              {msg.metrics.total_duration.toFixed(1)}s
+                            </Badge>
                           )}
                         </div>
                       )}
