@@ -223,56 +223,51 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             # Handle content with thinking detection
             if delta.content:
                 content = clean_llm_output(delta.content)
-                if content and think:
+                if not content:
+                    continue
+
+                if think:
                     # Add to buffer for tag detection
                     content_buffer += content
 
-                    # Process buffer for thinking tags
-                    while content_buffer:
-                        if in_thinking_block:
-                            # Look for end tag
-                            found_end, _, remaining = self._detect_thinking_end(content_buffer)
-                            if found_end:
-                                # Extract thinking content before end tag
-                                end_match = None
-                                for pattern in THINKING_END_PATTERNS:
-                                    end_match = re.search(pattern, content_buffer, re.IGNORECASE)
-                                    if end_match:
-                                        break
-                                if end_match:
-                                    thinking_content = content_buffer[:end_match.start()]
-                                    if thinking_content:
-                                        yield StreamChunk(type="thinking", thinking=thinking_content)
-                                    content_buffer = content_buffer[end_match.end():]
-                                    in_thinking_block = False
-                            else:
-                                # Still in thinking block, yield what we have and wait for more
-                                if len(content_buffer) > 50:  # Yield in chunks to avoid buffering too much
-                                    yield StreamChunk(type="thinking", thinking=content_buffer)
-                                    content_buffer = ""
-                                break
-                        else:
-                            # Look for start tag
-                            found_start, _, _ = self._detect_thinking_start(content_buffer)
-                            if found_start:
-                                # Extract content before start tag
-                                start_match = None
-                                for pattern in THINKING_START_PATTERNS:
-                                    start_match = re.search(pattern, content_buffer, re.IGNORECASE)
-                                    if start_match:
-                                        break
-                                if start_match:
-                                    before_content = content_buffer[:start_match.start()]
+                    # Check for thinking start tag
+                    if not in_thinking_block:
+                        found_start, _, _ = self._detect_thinking_start(content_buffer)
+                        if found_start:
+                            # Extract content before start tag
+                            for pattern in THINKING_START_PATTERNS:
+                                match = re.search(pattern, content_buffer, re.IGNORECASE)
+                                if match:
+                                    before_content = content_buffer[:match.start()]
                                     if before_content:
                                         yield StreamChunk(type="content", content=before_content)
-                                    content_buffer = content_buffer[start_match.end():]
+                                    content_buffer = content_buffer[match.end():]
                                     in_thinking_block = True
-                            else:
-                                # No thinking tag found, yield as content
-                                yield StreamChunk(type="content", content=content_buffer)
-                                content_buffer = ""
-                                break
-                elif content:
+                                    break
+                        else:
+                            # No thinking tag, yield content directly
+                            yield StreamChunk(type="content", content=content_buffer)
+                            content_buffer = ""
+
+                    # Check for thinking end tag (if in thinking block)
+                    if in_thinking_block:
+                        found_end, _, _ = self._detect_thinking_end(content_buffer)
+                        if found_end:
+                            # Extract thinking content before end tag
+                            for pattern in THINKING_END_PATTERNS:
+                                match = re.search(pattern, content_buffer, re.IGNORECASE)
+                                if match:
+                                    thinking_content = content_buffer[:match.start()]
+                                    if thinking_content:
+                                        yield StreamChunk(type="thinking", thinking=thinking_content)
+                                    content_buffer = content_buffer[match.end():]
+                                    in_thinking_block = False
+                                    break
+                        elif len(content_buffer) > 100:
+                            # Yield thinking content in chunks to avoid buffering too much
+                            yield StreamChunk(type="thinking", thinking=content_buffer)
+                            content_buffer = ""
+                else:
                     # Thinking detection disabled, yield as content directly
                     yield StreamChunk(type="content", content=content)
 

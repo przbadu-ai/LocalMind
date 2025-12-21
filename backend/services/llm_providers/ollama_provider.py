@@ -217,13 +217,34 @@ class OllamaProvider(BaseLLMProvider):
 
         logger.info(f"Ollama streaming request: model={self.model}, think={think}, tools={len(tools) if tools else 0}")
 
-        try:
-            stream = self.client.chat(**request_kwargs)
+        # Helper to iterate through stream and handle thinking fallback
+        def get_stream():
+            nonlocal request_kwargs
+            try:
+                stream = self.client.chat(**request_kwargs)
+                # Try to get the first chunk to check if thinking is supported
+                first_chunk = None
+                for chunk in stream:
+                    if first_chunk is None:
+                        first_chunk = chunk
+                    yield chunk
+            except Exception as e:
+                # Some models don't support the think parameter
+                error_msg = str(e).lower()
+                if "think" in error_msg and "think" in request_kwargs:
+                    logger.warning(f"Model {self.model} doesn't support thinking, retrying without it")
+                    del request_kwargs["think"]
+                    stream = self.client.chat(**request_kwargs)
+                    for chunk in stream:
+                        yield chunk
+                else:
+                    raise
 
+        try:
             # Track accumulated content for tool call parsing
             current_tool_calls: dict[int, dict[str, Any]] = {}
 
-            for chunk in stream:
+            for chunk in get_stream():
                 message = chunk.get("message", {})
 
                 # Handle thinking content (separate from main content)
