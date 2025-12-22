@@ -24,6 +24,14 @@ export interface Chat {
   provider?: string | null;
 }
 
+export interface ChatSidebarItem {
+  id: string;
+  title: string;
+  updated_at: string;
+  is_pinned: boolean;
+  is_archived: boolean;
+}
+
 export interface ToolCallData {
   id: string;
   name: string;
@@ -146,6 +154,38 @@ class ChatService {
     }
 
     return response.json();
+  }
+
+  /**
+   * Get lightweight chat list for sidebar (avoids N+1 queries).
+   * Has a 5-second timeout to prevent hanging when backend is unavailable.
+   */
+  async getSidebarChats(limit: number = 30, includeArchived: boolean = false): Promise<ChatSidebarItem[]> {
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      include_archived: includeArchived.toString(),
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    try {
+      const response = await fetch(`${this.baseUrl}/chats/sidebar?${params}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get sidebar chats: ${response.statusText}`);
+      }
+
+      return response.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**

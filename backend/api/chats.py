@@ -54,6 +54,16 @@ class ChatResponse(BaseModel):
     provider: Optional[str] = None
 
 
+class ChatSidebarResponse(BaseModel):
+    """Lightweight response for sidebar - no message_count to avoid N+1 queries."""
+
+    id: str
+    title: str
+    updated_at: str
+    is_pinned: bool
+    is_archived: bool
+
+
 class ChatWithMessagesResponse(ChatResponse):
     """Response model for a chat with messages."""
 
@@ -127,6 +137,25 @@ async def search_chats(
             message_count=message_repo.count_by_chat_id(chat.id),
             model=chat.model,
             provider=chat.provider,
+        )
+        for chat in chats
+    ]
+
+
+@router.get("/chats/sidebar")
+async def get_sidebar_chats(
+    limit: int = Query(default=30, ge=1, le=100),
+    include_archived: bool = Query(default=False),
+) -> list[ChatSidebarResponse]:
+    """Lightweight endpoint for sidebar - avoids N+1 message_count query."""
+    chats = chat_repo.get_recent(limit=limit, include_archived=include_archived)
+    return [
+        ChatSidebarResponse(
+            id=chat.id,
+            title=chat.title,
+            updated_at=chat.updated_at.isoformat(),
+            is_pinned=chat.is_pinned,
+            is_archived=chat.is_archived,
         )
         for chat in chats
     ]

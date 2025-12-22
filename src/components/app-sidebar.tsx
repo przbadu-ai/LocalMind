@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { useState, useEffect } from "react"
-import { chatService, type Chat } from "@/services/chat-service"
+import { chatService, type ChatSidebarItem } from "@/services/chat-service"
 
 import {
   Sidebar,
@@ -49,7 +49,7 @@ export function AppSidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const currentPath = location.pathname
-  const [recentChats, setRecentChats] = useState<Chat[]>([])
+  const [recentChats, setRecentChats] = useState<ChatSidebarItem[]>([])
   const [isLoadingChats, setIsLoadingChats] = useState(true)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [renameId, setRenameId] = useState<string | null>(null)
@@ -62,7 +62,7 @@ export function AppSidebar() {
     const loadRecentChats = async () => {
       try {
         setIsLoadingChats(true)
-        const chats = await chatService.getRecentChats(30, false)
+        const chats = await chatService.getSidebarChats(30, false)
         setRecentChats(chats)
       } catch (error) {
         console.error('Failed to load recent chats:', error)
@@ -89,7 +89,7 @@ export function AppSidebar() {
     navigate('/')
   }
 
-  const openRenameDialog = (chat: Chat) => {
+  const openRenameDialog = (chat: ChatSidebarItem) => {
     setRenameId(chat.id)
     setNewTitle(chat.title)
   }
@@ -99,7 +99,12 @@ export function AppSidebar() {
 
     try {
       const updated = await chatService.updateChat(renameId, { title: newTitle.trim() })
-      setRecentChats(prev => prev.map(chat => chat.id === renameId ? updated : chat))
+      // Update local state with only the fields we need for sidebar
+      setRecentChats(prev => prev.map(chat =>
+        chat.id === renameId
+          ? { ...chat, title: updated.title, updated_at: updated.updated_at || chat.updated_at }
+          : chat
+      ))
       window.dispatchEvent(new Event('chats-updated'))
     } catch (error) {
       console.error('Failed to rename chat:', error)

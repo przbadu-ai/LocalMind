@@ -156,8 +156,8 @@ export const useChatStore = create<ChatState>()(
     {
       name: "chat-store",
       partialize: (state) => ({
-        // Only persist these fields
-        currentChatId: state.currentChatId,
+        // Only persist recent chats for offline sidebar
+        // Do NOT persist currentChatId - app always starts fresh at new chat screen
         recentChats: state.recentChats,
       }),
     }
