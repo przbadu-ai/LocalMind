@@ -1108,7 +1108,6 @@ export default function ChatDetail() {
                 documents={attachedDocuments}
                 onAdd={handleAddDocument}
                 onUpdate={handleUpdateDocument}
-                onRemove={handleRemoveDocument}
                 chatId={conversationIdRef.current || chatId || ''}
                 disabled={isLoading}
                 maxDocuments={5}

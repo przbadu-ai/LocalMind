@@ -19,7 +19,6 @@ interface DocumentAttachmentProps {
   documents: AttachedDocument[]
   onAdd: (doc: AttachedDocument) => void
   onUpdate: (id: string, updates: Partial<AttachedDocument>) => void
-  onRemove: (id: string) => void
   chatId: string
   disabled?: boolean
   maxDocuments?: number
@@ -60,7 +59,6 @@ export function DocumentAttachment({
   documents,
   onAdd,
   onUpdate,
-  onRemove,
   chatId,
   disabled = false,
   maxDocuments = 5,
