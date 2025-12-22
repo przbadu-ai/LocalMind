@@ -40,8 +40,8 @@ export default defineConfig(async () => ({
           port: 1421,
         },
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and `backend` (venv has too many files)
+      ignored: ["**/src-tauri/**", "**/backend/**", "**/node_modules/**"],
     },
   },
 }));

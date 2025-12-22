@@ -1,5 +1,5 @@
 """API routes for LocalMind."""
 
-from api import chat, chats, mcp, settings, youtube
+from api import chat, chats, documents, mcp, settings, youtube
 
-__all__ = ["chat", "chats", "youtube", "mcp", "settings"]
+__all__ = ["chat", "chats", "documents", "youtube", "mcp", "settings"]

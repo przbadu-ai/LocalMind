@@ -14,6 +14,7 @@ from database.models import Chat, Message, ToolCallData
 from database.repositories.chat_repository import ChatRepository
 from database.repositories.config_repository import ConfigRepository
 from database.repositories.message_repository import MessageRepository
+from services.document_service import document_service
 from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall, llm_service
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
@@ -255,6 +256,24 @@ TRANSCRIPT (for your reference only - DO NOT output this verbatim):
 Based on this transcript, provide a helpful, structured response. If this is the first message about this video, give a comprehensive summary with key points and main topics discussed."""
         elif youtube_urls and not transcript:
             system_content += f"\n\nThe user shared a YouTube video (ID: {video_id}) but the transcript could not be extracted. Let them know you can't access the video content."
+
+        # Add document context if documents are attached to this chat
+        if conversation_id:
+            completed_docs = document_service.get_completed_documents_for_chat(conversation_id)
+            if completed_docs:
+                document_context = document_service.build_context_from_documents(
+                    completed_docs,
+                    max_chars=8000,
+                    max_chunks_per_doc=10,
+                )
+                if document_context:
+                    system_content += f"""
+
+The user has uploaded the following document(s) for reference:
+
+{document_context}
+
+Use this document content to answer the user's questions. Reference specific sections when relevant. If asked about the document, provide accurate information based on the extracted text above."""
 
         context_messages.append(ChatMessage(role="system", content=system_content))
 

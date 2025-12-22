@@ -22,6 +22,12 @@ import {
   useImagePaste,
   type AttachedImage,
 } from "@/components/chat/ImageAttachment"
+import {
+  DocumentAttachment,
+  DocumentPreviewList,
+  type AttachedDocument,
+} from "@/components/chat/DocumentAttachment"
+import { documentService } from "@/services/document-service"
 import type { ToolCall } from "@/types/toolCall"
 
 interface GenerationMetrics {
@@ -93,6 +99,8 @@ export default function ChatDetail() {
 
   // Image attachment state
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
+  // Document attachment state
+  const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([])
   // Thinking/reasoning toggle (for models like deepseek-r1, qwen3)
   const [thinkingEnabled, setThinkingEnabled] = useState(true)
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
@@ -132,6 +140,53 @@ export default function ChatDetail() {
 
   const handleRemoveImage = useCallback((id: string) => {
     setAttachedImages(prev => prev.filter(img => img.id !== id))
+  }, [])
+
+  // Document attachment handlers
+  const handleAddDocument = useCallback((doc: AttachedDocument) => {
+    setAttachedDocuments(prev => [...prev, doc])
+  }, [])
+
+  const handleUpdateDocument = useCallback((id: string, updates: Partial<AttachedDocument>) => {
+    console.log('[ChatDetails] handleUpdateDocument called:', id, updates)
+    setAttachedDocuments(prev => {
+      const updated = prev.map(doc =>
+        doc.id === id ? { ...doc, ...updates } : doc
+      )
+      console.log('[ChatDetails] Documents after update:', updated)
+      return updated
+    })
+  }, [])
+
+  const handleRemoveDocument = useCallback(async (id: string) => {
+    const doc = attachedDocuments.find(d => d.id === id)
+    // If the document was already uploaded, delete it from the server
+    if (doc?.document?.id) {
+      try {
+        await documentService.deleteDocument(doc.document.id)
+      } catch (error) {
+        console.error('Failed to delete document from server:', error)
+      }
+    }
+    setAttachedDocuments(prev => prev.filter(d => d.id !== id))
+  }, [attachedDocuments])
+
+  // Ensure a chat exists for document upload (creates one if needed)
+  // This is a fallback - normally the draft chat is created when entering new chat screen
+  const ensureChatIdForDocument = useCallback(async (): Promise<string> => {
+    if (conversationIdRef.current) {
+      return conversationIdRef.current
+    }
+
+    // Create a new chat (fallback if draft wasn't created)
+    const newChat = await chatService.createChat({
+      title: 'New Chat'
+    })
+    conversationIdRef.current = newChat.id
+    setCurrentChat(newChat)
+    // Don't notify sidebar yet - wait for first message
+
+    return newChat.id
   }, [])
 
   // Handle paste events for images
@@ -202,10 +257,28 @@ export default function ChatDetail() {
     setIsLoading(false)
     setLoadingMessage("")
     setAttachedImages([])
+    setAttachedDocuments([])
 
-    // If it's a new chat (no ID), we don't need to load anything
+    // If it's a new chat (no ID), create a draft chat immediately
+    // This allows document uploads before the first message is sent
     if (!chatId) {
       chatDataLoaded.current = true
+
+      // Create a draft chat for document uploads
+      const createDraftChat = async () => {
+        try {
+          const newChat = await chatService.createChat({
+            title: 'New Chat'
+          })
+          conversationIdRef.current = newChat.id
+          setCurrentChat(newChat)
+          // Don't update the title in the header - keep it as "New Chat"
+          // Don't notify sidebar yet - wait for first message
+        } catch (error) {
+          console.error('Failed to create draft chat:', error)
+        }
+      }
+      createDraftChat()
     }
   }, [chatId])
 
@@ -354,7 +427,10 @@ export default function ChatDetail() {
     }
     setIsLoading(true)
 
-    // Create a new chat if we don't have one
+    // Track if this is the first message (for sidebar notification)
+    const isFirstMessage = messages.length === 0
+
+    // Create a new chat if we don't have one (fallback, normally draft is created)
     if (!conversationIdRef.current) {
       try {
         const newChat = await chatService.createChat({
@@ -363,12 +439,14 @@ export default function ChatDetail() {
         conversationIdRef.current = newChat.id
         setCurrentChat(newChat)
         setTitle(newChat.title)
-
-        // Notify sidebar to refresh chat list
-        window.dispatchEvent(new Event('chats-updated'))
       } catch (error) {
         console.error('Failed to create chat:', error)
       }
+    }
+
+    // Notify sidebar on first message so the chat appears in the list
+    if (isFirstMessage) {
+      window.dispatchEvent(new Event('chats-updated'))
     }
 
     setLoadingMessage("Connecting to AI model...")
@@ -985,6 +1063,14 @@ export default function ChatDetail() {
               disabled={isLoading}
             />
           )}
+          {/* Document previews */}
+          {attachedDocuments.length > 0 && (
+            <DocumentPreviewList
+              documents={attachedDocuments}
+              onRemove={handleRemoveDocument}
+              disabled={isLoading}
+            />
+          )}
           {/* Textarea area */}
           <div className="px-3 pt-3 pb-2">
             <Textarea
@@ -1017,6 +1103,16 @@ export default function ChatDetail() {
                 onAdd={handleAddImage}
                 disabled={isLoading}
                 maxImages={5}
+              />
+              <DocumentAttachment
+                documents={attachedDocuments}
+                onAdd={handleAddDocument}
+                onUpdate={handleUpdateDocument}
+                onRemove={handleRemoveDocument}
+                chatId={conversationIdRef.current || chatId || ''}
+                disabled={isLoading}
+                maxDocuments={5}
+                onEnsureChatId={ensureChatIdForDocument}
               />
               <Button
                 variant={thinkingEnabled ? "secondary" : "ghost"}
