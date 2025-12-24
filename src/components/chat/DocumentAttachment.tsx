@@ -241,6 +241,7 @@ export function DocumentAttachment({
 interface DocumentPreviewListProps {
   documents: AttachedDocument[]
   onRemove: (id: string) => void
+  onDocumentClick?: (documentId: string) => void
   disabled?: boolean
 }
 
@@ -250,6 +251,7 @@ interface DocumentPreviewListProps {
 export function DocumentPreviewList({
   documents,
   onRemove,
+  onDocumentClick,
   disabled = false,
 }: DocumentPreviewListProps) {
   if (documents.length === 0) return null
@@ -261,9 +263,15 @@ export function DocumentPreviewList({
           key={doc.id}
           className={cn(
             'relative group flex items-center gap-3 p-2 rounded-lg border',
-            'bg-muted/30 hover:bg-muted/50 transition-colors',
+            'bg-muted/30 transition-colors',
+            doc.status === 'completed' && onDocumentClick ? 'hover:bg-muted/50 cursor-pointer' : 'hover:bg-muted/50',
             doc.status === 'error' && 'border-destructive/50 bg-destructive/5'
           )}
+          onClick={() => {
+            if (doc.status === 'completed' && doc.document?.id && onDocumentClick) {
+              onDocumentClick(doc.document.id)
+            }
+          }}
         >
           {/* Status icon */}
           <div className="flex-shrink-0">

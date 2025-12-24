@@ -27,6 +27,7 @@ import {
   DocumentPreviewList,
   type AttachedDocument,
 } from "@/components/chat/DocumentAttachment"
+import { DocumentViewer } from "@/components/chat/DocumentViewer"
 import { documentService } from "@/services/document-service"
 import type { ToolCall } from "@/types/toolCall"
 
@@ -96,6 +97,10 @@ export default function ChatDetail() {
   const [isTranscriptLoading, setIsTranscriptLoading] = useState(false)
   const [isVideoSheetOpen, setIsVideoSheetOpen] = useState(false)
   const isMobile = useIsMobile()
+
+  // Document state
+  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null)
+  const [isDocumentSheetOpen, setIsDocumentSheetOpen] = useState(false)
 
   // Image attachment state
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
@@ -251,9 +256,13 @@ export default function ChatDetail() {
     setMessages([])
     setCurrentChat(null)
     setTranscriptError(null)
+    setTranscriptError(null)
     setCurrentVideoId(null)
     setCurrentTranscript(null)
     setCurrentPlaybackTime(0)
+    // Reset document state
+    setCurrentDocumentId(null)
+    setIsDocumentSheetOpen(false)
     setIsLoading(false)
     setLoadingMessage("")
     setAttachedImages([])
@@ -384,6 +393,20 @@ export default function ChatDetail() {
     setCurrentPlaybackTime(0)
     setIsVideoSheetOpen(false)
   }
+
+  // Close document panel
+  const handleCloseDocument = () => {
+    setCurrentDocumentId(null)
+    setIsDocumentSheetOpen(false)
+  }
+
+  // Open document panel
+  const handleOpenDocument = useCallback((documentId: string) => {
+    setCurrentDocumentId(documentId)
+    if (showStackedView) {
+      setIsDocumentSheetOpen(true)
+    }
+  }, [showStackedView])
 
   // Send message function that accepts an optional message parameter and optional images
   const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[]) => {
@@ -599,14 +622,14 @@ export default function ChatDetail() {
                       setMessages(prev => prev.map(msg =>
                         msg.id === userMessage.id
                           ? {
-                              ...msg,
-                              artifactType: 'youtube' as const,
-                              artifactData: {
-                                video_id: data.video_id,
-                                url: data.url,
-                                transcript_available: false,
-                              }
+                            ...msg,
+                            artifactType: 'youtube' as const,
+                            artifactData: {
+                              video_id: data.video_id,
+                              url: data.url,
+                              transcript_available: false,
                             }
+                          }
                           : msg
                       ))
                     } else if (data.type === 'transcript_status') {
@@ -653,9 +676,9 @@ export default function ChatDetail() {
                           return prev.map(msg =>
                             msg.id === assistantMessageId
                               ? {
-                                  ...msg,
-                                  toolCalls: [...(msg.toolCalls || []), newToolCall]
-                                }
+                                ...msg,
+                                toolCalls: [...(msg.toolCalls || []), newToolCall]
+                              }
                               : msg
                           )
                         } else {
@@ -681,18 +704,18 @@ export default function ChatDetail() {
                           return prev.map(msg =>
                             msg.id === assistantMessageId
                               ? {
-                                  ...msg,
-                                  toolCalls: msg.toolCalls?.map(tc =>
-                                    tc.id === data.tool_call_id
-                                      ? {
-                                          ...tc,
-                                          status: data.error ? 'error' as const : 'completed' as const,
-                                          result: data.result,
-                                          error: data.error,
-                                        }
-                                      : tc
-                                  )
-                                }
+                                ...msg,
+                                toolCalls: msg.toolCalls?.map(tc =>
+                                  tc.id === data.tool_call_id
+                                    ? {
+                                      ...tc,
+                                      status: data.error ? 'error' as const : 'completed' as const,
+                                      result: data.result,
+                                      error: data.error,
+                                    }
+                                    : tc
+                                )
+                              }
                               : msg
                           )
                         } else {
@@ -731,13 +754,13 @@ export default function ChatDetail() {
                       setMessages(prev => prev.map(msg =>
                         msg.id === assistantMessageId && msg.toolCalls
                           ? {
-                              ...msg,
-                              toolCalls: msg.toolCalls.map(tc =>
-                                tc.status === 'executing'
-                                  ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
-                                  : tc
-                              )
-                            }
+                            ...msg,
+                            toolCalls: msg.toolCalls.map(tc =>
+                              tc.status === 'executing'
+                                ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
+                                : tc
+                            )
+                          }
                           : msg
                       ))
                       setIsExecutingTools(false)
@@ -780,13 +803,13 @@ export default function ChatDetail() {
             setMessages(prev => prev.map(msg =>
               msg.id === assistantMessageId && msg.toolCalls
                 ? {
-                    ...msg,
-                    toolCalls: msg.toolCalls.map(tc =>
-                      tc.status === 'executing'
-                        ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
-                        : tc
-                    )
-                  }
+                  ...msg,
+                  toolCalls: msg.toolCalls.map(tc =>
+                    tc.status === 'executing'
+                      ? { ...tc, status: 'error' as const, error: 'Stopped by user' }
+                      : tc
+                  )
+                }
                 : msg
             ))
             setIsExecutingTools(false)
@@ -888,6 +911,8 @@ export default function ChatDetail() {
 
   // Determine if we should show two-column layout
   const hasVideoArtifact = currentVideoId !== null
+  const hasDocumentArtifact = currentDocumentId !== null
+  const hasSidePanel = hasVideoArtifact || hasDocumentArtifact
 
   // Ensure video sheet is open when switching to mobile with active video
   useEffect(() => {
@@ -895,7 +920,10 @@ export default function ChatDetail() {
       // Optional: auto-open if needed, or leave it to user
       // setIsVideoSheetOpen(true)
     }
-  }, [showStackedView, hasVideoArtifact, isVideoSheetOpen])
+    if (showStackedView && hasDocumentArtifact && !isDocumentSheetOpen) {
+      // Optional: auto-open if needed
+    }
+  }, [showStackedView, hasVideoArtifact, isVideoSheetOpen, hasDocumentArtifact, isDocumentSheetOpen])
 
   const ChatPanel = (
     <div className="h-full flex flex-col">
@@ -1028,6 +1056,7 @@ export default function ChatDetail() {
                       size="sm"
                       className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
                       onClick={() => {
+                        handleCloseDocument() // Close document if open
                         setCurrentVideoId(msg.artifactData!.video_id!)
                         fetchTranscript(msg.artifactData!.video_id!)
                         if (showStackedView) setIsVideoSheetOpen(true)
@@ -1045,6 +1074,40 @@ export default function ChatDetail() {
                     </Button>
                   </div>
                 )}
+
+                {/* PDF Document artifact indicator - if checking backend logic, PDFs might not be in artifactData 
+                    but just in the chat context. 
+                    However, if we want to click to view, we should look for them?
+                    Current backend only injects them into system context.
+                    We need to list them from `attachedDocuments`? 
+                    Wait, attachedDocuments are what we are SENDING.
+                    Usually we want to see documents already in the chat. 
+                    `documentService.getDocumentsForChat`?
+                    
+                    For now, let's allow clicking from the `AttachedDocument` previews 
+                    Use `DocumentPreviewList`? No, that's for input.
+                    
+                    We don't have a "Chat Files" list yet.
+                    But if we want a "Not working like screenshot" behavior, 
+                    maybe we just rely on `DocumentPreviewList` in the input area?
+                    Or maybe we should add a "Documents" button in the header?
+                    
+                    The screenshot showed "rag-anything...pdf" in a modal.
+                    Maybe it was clicked from a file list?
+                    
+                    Let's add a `Files` button to the header?
+                    Or better, add a way to view attached documents from previous messages?
+                    
+                    But messages don't store "attached documents" metadata in `artifactData` for PDFs in the current backend logic (only YouTube/Images).
+                    The backend `api/chat.py` only sets `artifact_type="image"` or `artifact_type="youtube"`.
+                    It does not set `artifact_type="pdf"`.
+                    PDFs are uploaded separately via `upload_document`.
+                    
+                    So we can't click a message bubble for PDFs yet.
+                    We should query documents for the chat and list them?
+                    
+                    Let's update the `ChatDetails` to fetch documents.
+                 */}
               </div>
             ))}
             <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
@@ -1068,6 +1131,7 @@ export default function ChatDetail() {
             <DocumentPreviewList
               documents={attachedDocuments}
               onRemove={handleRemoveDocument}
+              onDocumentClick={handleOpenDocument}
               disabled={isLoading}
             />
           )}
@@ -1302,7 +1366,32 @@ export default function ChatDetail() {
             {VideoPanel}
           </SheetContent>
         </Sheet>
-      </div>
+
+        <Sheet open={isDocumentSheetOpen} onOpenChange={setIsDocumentSheetOpen}>
+          <SheetContent side="bottom" className="h-[85vh] p-0 flex flex-col">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Document Viewer</SheetTitle>
+              <SheetDescription>View document content</SheetDescription>
+            </SheetHeader>
+            {currentDocumentId && (
+              <div className="h-full flex flex-col relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 z-10 h-8 w-8 bg-background/50 hover:bg-background"
+                  onClick={handleCloseDocument}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <DocumentViewer
+                  documentId={currentDocumentId}
+                  onClose={handleCloseDocument}
+                />
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
+      </div >
     )
   }
 
@@ -1311,16 +1400,33 @@ export default function ChatDetail() {
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           {/* Chat Panel */}
-          <ResizablePanel defaultSize={hasVideoArtifact ? 50 : 100} minSize={30}>
+          <ResizablePanel defaultSize={hasSidePanel ? 50 : 100} minSize={30}>
             {ChatPanel}
           </ResizablePanel>
 
-          {/* Video/Transcript Panel */}
-          {hasVideoArtifact && (
+          {/* Side Panel (Video or Document) */}
+          {hasSidePanel && (
             <>
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={30}>
-                {VideoPanel}
+                {hasVideoArtifact ? VideoPanel : (
+                  currentDocumentId && (
+                    <div className="h-full relative border-l border-border">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 z-10 h-8 w-8 bg-background/50 hover:bg-background"
+                        onClick={handleCloseDocument}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <DocumentViewer
+                        documentId={currentDocumentId}
+                        onClose={handleCloseDocument}
+                      />
+                    </div>
+                  )
+                )}
               </ResizablePanel>
             </>
           )}

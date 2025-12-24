@@ -36,6 +36,51 @@ class DocumentService:
         self.chunk_repo = DocumentChunkRepository()
         self.chunk_size = 2000  # Characters per chunk
         self.chunk_overlap = 200  # Overlap for context continuity
+        self._converter = None
+
+    def _get_converter(self):
+        """
+        Lazy-initialize a lightweight DocumentConverter instance.
+        Configured for speed and low resource usage (CPU only, no OCR/Tables).
+        """
+        if self._converter is not None:
+            return self._converter
+
+        try:
+            from docling.datamodel.base_models import InputFormat
+            from docling.datamodel.pipeline_options import (
+                PdfPipelineOptions,
+                AcceleratorOptions,
+                AcceleratorDevice,
+            )
+            from docling.document_converter import DocumentConverter, PdfFormatOption
+
+            # 1. Configure for Safety and Resource Management
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.do_ocr = False # Critical: Disable expensive OCR
+            pipeline_options.do_table_structure = False # Disable heavy table analysis
+            pipeline_options.generate_page_images = False # Save RAM/VRAM
+            
+            # 2. Force CPU usage and limit threads to prevent system lockups
+            # Integrated/iGPUs (like Strix Halo) can crash if PyTorch/ONNX tries to OOM them.
+            accelerator_options = AcceleratorOptions(
+                num_threads=4, # Limit parallelism
+                device=AcceleratorDevice.CPU # Strictly CPU only
+            )
+            pipeline_options.accelerator_options = accelerator_options
+
+            # 3. Create converter with specialized PDF options
+            self._converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
+            )
+            logger.info("Initialized lightweight DocumentConverter (CPU-only, OCR disabled)")
+            return self._converter
+
+        except Exception as e:
+            logger.error(f"Failed to initialize DocumentConverter: {e}")
+            raise
 
     def process_pdf(
         self,
@@ -55,15 +100,16 @@ class DocumentService:
             DocumentResult with success status and processing info
         """
         try:
-            # Import docling here to avoid startup overhead if not used
-            from docling.document_converter import DocumentConverter
+            # Get the lightweight converter
+            converter = self._get_converter()
 
             # Update status to processing
             self.document_repo.update_status(document_id, "processing")
 
-            # Initialize converter and process document
-            converter = DocumentConverter()
+            # Process document
+            logger.info(f"Starting conversion for document {document_id}...")
             result = converter.convert(file_path)
+            logger.info(f"Successfully converted document {document_id}")
 
             # Get the document and extract text
             doc = result.document
@@ -220,13 +266,18 @@ class DocumentService:
                 )
                 chunk_index += 1
 
-            # Move start forward, accounting for overlap
-            start = end - self.chunk_overlap
-            if start >= text_length:
+            # If we reached the end of the document, we're done
+            if end >= text_length:
                 break
 
-            # Prevent infinite loop
-            if start <= 0 and chunk_index > 0:
+            # Move start forward, accounting for overlap
+            # Ensure we ALWAYS advance by at least 1 character to avoid infinite loops
+            next_start = end - self.chunk_overlap
+            start = max(next_start, start + 1)
+
+            # Prevent infinite loop safety check
+            if chunk_index > 10000: # Sanity limit for huge documents
+                logger.warning(f"Chunking limit reached for document {document_id}")
                 break
 
         return chunks
