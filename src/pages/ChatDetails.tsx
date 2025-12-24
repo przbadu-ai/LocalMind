@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check, FileText } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -26,6 +26,7 @@ import {
   DocumentAttachment,
   DocumentPreviewList,
   type AttachedDocument,
+  formatFileSize,
 } from "@/components/chat/DocumentAttachment"
 import { DocumentViewer } from "@/components/chat/DocumentViewer"
 import { documentService } from "@/services/document-service"
@@ -53,6 +54,7 @@ interface ChatMessage {
     transcript_available?: boolean
     error?: string
     images?: Array<{ data: string; mimeType: string; preview?: string }>
+    documents?: Array<{ id: string; name: string; size: number }>
   }
   toolCalls?: ToolCall[]
   metrics?: GenerationMetrics
@@ -408,20 +410,24 @@ export default function ChatDetail() {
     }
   }, [showStackedView])
 
-  // Send message function that accepts an optional message parameter and optional images
-  const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[]) => {
-    // Use ref-based guard to prevent double submission (more reliable than state)
-    // Use override images if provided, otherwise use state
+  // Send message function that accepts an optional message parameter and optional images/docs
+  const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[], documentsOverride?: AttachedDocument[]) => {
+    // Use override images/docs if provided, otherwise use state
     const imagesToUse = imagesOverride ?? attachedImages
-    // Allow sending if there's text OR if there are attached images
-    if ((!messageToSend.trim() && imagesToUse.length === 0) || isLoading || isSubmittingRef.current) return
+    const documentsToUse = documentsOverride ?? attachedDocuments
+    // Allow sending if there's text OR if there are attached images/docs
+    const hasAttachments = imagesToUse.length > 0 || documentsToUse.length > 0
+    if ((!messageToSend.trim() && !hasAttachments) || isLoading || isSubmittingRef.current) return
     isSubmittingRef.current = true
 
-    // Capture current images before clearing
+    // Capture current images and documents before clearing
     const imagesToSend = [...imagesToUse]
+    const documentsToSend = [...documentsToUse]
 
-    // Use a default message if only images are attached
-    const messageContent = messageToSend.trim() || (imagesToSend.length > 0 ? "What's in this image?" : "")
+    // Use a default message if only images/docs are attached
+    const messageContent = messageToSend.trim() ||
+      (imagesToSend.length > 0 ? "What's in this image?" :
+        documentsToSend.length > 0 ? "What is in this document?" : "")
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -439,11 +445,25 @@ export default function ChatDetail() {
           })),
         },
       }),
+      // Include documents if attached
+      ...(documentsToSend.length > 0 && {
+        artifactType: 'pdf' as const,
+        artifactData: {
+          documents: documentsToSend
+            .filter(doc => doc.status === 'completed' && doc.document)
+            .map(doc => ({
+              id: doc.document!.id,
+              name: doc.name,
+              size: doc.size,
+            })),
+        },
+      }),
     }
 
     setMessages(prev => [...prev, userMessage])
     setMessage("")
     setAttachedImages([]) // Clear images after capturing
+    setAttachedDocuments([]) // Clear documents after capturing
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -526,6 +546,10 @@ export default function ChatDetail() {
                   data: img.data,
                   mime_type: img.mimeType,
                 })),
+              }),
+              // Include documents if any were attached
+              ...(userMessage.artifactData?.documents && {
+                documents: userMessage.artifactData.documents,
               }),
             }),
             signal: controller.signal,
@@ -855,7 +879,7 @@ export default function ChatDetail() {
       setLoadingMessage("")
       isSubmittingRef.current = false // Reset submission guard
     }
-  }, [isLoading, fetchTranscript, setTitle, attachedImages, thinkingEnabled])
+  }, [isLoading, fetchTranscript, setTitle, attachedImages, attachedDocuments, thinkingEnabled])
 
   // Wrapper for button click
   const handleSendMessage = useCallback(() => {
@@ -881,14 +905,20 @@ export default function ChatDetail() {
   useEffect(() => {
     const initialMessage = location.state?.initialMessage
     const initialImages = location.state?.initialImages as AttachedImage[] | undefined
+    const initialDocuments = location.state?.initialDocuments as AttachedDocument[] | undefined
+
     if (initialMessage && chatId && !hasProcessedInitialMessage.current) {
       hasProcessedInitialMessage.current = true
       // Set images in state for UI consistency
       if (initialImages && initialImages.length > 0) {
         setAttachedImages(initialImages)
       }
-      // Pass images directly to sendMessage to avoid async state issues
-      sendMessage(initialMessage, initialImages)
+      // Set documents in state for UI consistency
+      if (initialDocuments && initialDocuments.length > 0) {
+        setAttachedDocuments(initialDocuments)
+      }
+      // Pass both directly to sendMessage to avoid async state issues
+      sendMessage(initialMessage, initialImages, initialDocuments)
     }
   }, [location.state, chatId, sendMessage])
 
@@ -1050,7 +1080,7 @@ export default function ChatDetail() {
 
                 {/* YouTube artifact indicator */}
                 {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
-                  <div className="ml-4">
+                  <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2`}>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1072,6 +1102,36 @@ export default function ChatDetail() {
                         </div>
                       </div>
                     </Button>
+                  </div>
+                )}
+
+                {/* PDF artifact indicator */}
+                {msg.artifactType === 'pdf' && msg.artifactData?.documents && msg.artifactData.documents.length > 0 && (
+                  <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2 flex-wrap gap-2`}>
+                    {msg.artifactData.documents.map((doc) => (
+                      <Button
+                        key={doc.id}
+                        variant="outline"
+                        size="sm"
+                        className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                        onClick={() => {
+                          handleCloseVideo() // Close video if open
+                          handleOpenDocument(doc.id)
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <FileText className="h-4 w-4 text-blue-500" />
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
+                              {doc.name}
+                            </span>
+                            <div className="text-xs text-muted-foreground whitespace-nowrap">
+                              {formatFileSize(doc.size)}
+                            </div>
+                          </div>
+                        </div>
+                      </Button>
+                    ))}
                   </div>
                 )}
 

@@ -54,6 +54,8 @@ class ChatStreamRequest(BaseModel):
     images: Optional[list[ImageData]] = None
     # Enable thinking/reasoning output for supported models (deepseek-r1, qwen3, etc.)
     think: bool = True
+    # Optional documents for RAG artifacts in chat thread
+    documents: Optional[list[dict[str, Any]]] = None
 
 
 class CancelStreamRequest(BaseModel):
@@ -89,6 +91,7 @@ async def stream_chat_response(
     stream_id: Optional[str] = None,
     images: Optional[list[ImageData]] = None,
     think: bool = True,
+    documents: Optional[list[dict[str, Any]]] = None,
 ):
     """Generate streaming chat response.
 
@@ -129,6 +132,14 @@ async def stream_chat_response(
                     for img in images
                 ],
                 "image_count": len(images),
+            }
+
+        # Handle documents if provided
+        if documents:
+            artifact_type = "pdf"
+            artifact_data = {
+                "documents": documents,
+                "document_count": len(documents),
             }
 
         if youtube_urls:
@@ -665,6 +676,7 @@ async def chat_stream(request: ChatStreamRequest):
             stream_id=request.stream_id,
             images=request.images,
             think=request.think,
+            documents=request.documents,
         ),
         media_type="text/event-stream",
     )
