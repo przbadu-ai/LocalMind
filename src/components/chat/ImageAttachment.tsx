@@ -152,13 +152,14 @@ export function ImageAttachment({
 interface ImagePreviewListProps {
   images: AttachedImage[]
   onRemove: (id: string) => void
+  onImageClick?: (image: AttachedImage) => void
   disabled?: boolean
 }
 
 /**
  * Displays a list of attached image previews with remove buttons
  */
-export function ImagePreviewList({ images, onRemove, disabled = false }: ImagePreviewListProps) {
+export function ImagePreviewList({ images, onRemove, onImageClick, disabled = false }: ImagePreviewListProps) {
   if (images.length === 0) return null
 
   return (
@@ -168,8 +169,10 @@ export function ImagePreviewList({ images, onRemove, disabled = false }: ImagePr
           key={image.id}
           className={cn(
             'relative group rounded-lg overflow-hidden border border-border bg-muted/30',
-            'w-16 h-16 flex items-center justify-center'
+            'w-16 h-16 flex items-center justify-center transition-all',
+            onImageClick && !disabled ? 'cursor-zoom-in hover:ring-2 hover:ring-primary/50' : ''
           )}
+          onClick={() => !disabled && onImageClick?.(image)}
         >
           <img
             src={image.preview}

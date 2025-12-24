@@ -24,3 +24,6 @@ mcp>=1.0.0
 
 # Environment variables
 python-dotenv>=1.0.0
+
+# Document processing
+docling>=2.0.0

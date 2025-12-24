@@ -11,6 +11,12 @@ import {
   useImagePaste,
   type AttachedImage,
 } from "@/components/chat/ImageAttachment"
+import {
+  DocumentAttachment,
+  DocumentPreviewList,
+  type AttachedDocument,
+} from "@/components/chat/DocumentAttachment"
+import { documentService } from "@/services/document-service"
 
 export function MainContent() {
   const [message, setMessage] = useState("")
@@ -18,8 +24,11 @@ export function MainContent() {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
+  const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([])
+  const [draftChatId, setDraftChatId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messageInputContainerRef = useRef<HTMLDivElement>(null)
+  const draftChatCreatingRef = useRef(false)
   const navigate = useNavigate()
 
   const handleModelChange = (provider: string, model: string) => {
@@ -42,6 +51,59 @@ export function MainContent() {
     maxImages: 5,
     currentCount: attachedImages.length,
   })
+
+  // Document attachment handlers
+  const handleAddDocument = useCallback((doc: AttachedDocument) => {
+    setAttachedDocuments(prev => [...prev, doc])
+  }, [])
+
+  const handleUpdateDocument = useCallback((id: string, updates: Partial<AttachedDocument>) => {
+    setAttachedDocuments(prev => prev.map(doc =>
+      doc.id === id ? { ...doc, ...updates } : doc
+    ))
+  }, [])
+
+  const handleRemoveDocument = useCallback(async (id: string) => {
+    const doc = attachedDocuments.find(d => d.id === id)
+    if (doc?.document?.id) {
+      try {
+        await documentService.deleteDocument(doc.document.id)
+      } catch (error) {
+        console.error('Failed to delete document from server:', error)
+      }
+    }
+    setAttachedDocuments(prev => prev.filter(d => d.id !== id))
+  }, [attachedDocuments])
+
+  // Ensure a chat exists for document upload
+  const ensureChatId = useCallback(async (): Promise<string> => {
+    if (draftChatId) return draftChatId
+    if (draftChatCreatingRef.current) {
+      // Wait for existing creation to finish
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (draftChatId) {
+            clearInterval(checkInterval)
+            resolve(draftChatId)
+          }
+        }, 100)
+      })
+    }
+
+    draftChatCreatingRef.current = true
+    try {
+      const newChat = await chatService.createChat({
+        title: 'New Chat'
+      })
+      setDraftChatId(newChat.id)
+      draftChatCreatingRef.current = false
+      return newChat.id
+    } catch (error) {
+      draftChatCreatingRef.current = false
+      console.error('Failed to create draft chat:', error)
+      throw error
+    }
+  }, [draftChatId])
 
   // Attach paste listener to the message input container
   useEffect(() => {
@@ -73,36 +135,52 @@ export function MainContent() {
   }, [message])
 
   const handleSendMessage = async () => {
-    // Allow sending if there's text OR if there are attached images
-    if ((!message.trim() && attachedImages.length === 0) || isCreatingChat) return
-    
+    // Allow sending if there's text OR if there are attached images/docs
+    const hasAttachments = attachedImages.length > 0 || attachedDocuments.length > 0
+    if ((!message.trim() && !hasAttachments) || isCreatingChat) return
+
     setIsCreatingChat(true)
     try {
-      // Use a default message if only images are attached
-      const messageContent = message.trim() || (attachedImages.length > 0 ? "What's in this image?" : "")
-      
-      // Create a new chat with the message as the title and selected model
-      const newChat = await chatService.createChat({
-        title: messageContent.substring(0, 50),
-        model: selectedModel || undefined,
-        provider: selectedProvider || undefined,
-      })
+      // Use a default message if only images/docs are attached
+      const messageContent = message.trim() ||
+        (attachedImages.length > 0 ? "What's in this image?" :
+          attachedDocuments.length > 0 ? "What is in this document?" : "")
 
-      // Capture current images before clearing
+      // Use existing draft chat if we have one, otherwise create a new one
+      let chatIdToUse = draftChatId
+      let newChat = null
+
+      if (chatIdToUse) {
+        // Update the draft chat title with the first message
+        await chatService.updateChat(chatIdToUse, { title: messageContent.substring(0, 50) })
+      } else {
+        // Create a new chat
+        newChat = await chatService.createChat({
+          title: messageContent.substring(0, 50),
+          model: selectedModel || undefined,
+          provider: selectedProvider || undefined,
+        })
+        chatIdToUse = newChat.id
+      }
+
+      // Capture current images and documents before clearing
       const imagesToSend = [...attachedImages]
+      const documentsToSend = [...attachedDocuments]
 
       // Reset textarea height and clear state
       setMessage("")
       setAttachedImages([])
+      setAttachedDocuments([])
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'
       }
 
-      // Navigate to the chat detail page with the message and images in state
-      navigate(`/chats/${newChat.id}`, {
-        state: { 
+      // Navigate to the chat detail page
+      navigate(`/chats/${chatIdToUse}`, {
+        state: {
           initialMessage: messageContent,
-          initialImages: imagesToSend
+          initialImages: imagesToSend,
+          initialDocuments: documentsToSend
         }
       })
     } catch (error) {
@@ -141,6 +219,12 @@ export function MainContent() {
                 onRemove={handleRemoveImage}
                 disabled={isCreatingChat}
               />
+              {/* Document previews */}
+              <DocumentPreviewList
+                documents={attachedDocuments}
+                onRemove={handleRemoveDocument}
+                disabled={isCreatingChat}
+              />
               {/* Textarea area */}
               <div className="p-4">
                 <Textarea
@@ -164,6 +248,16 @@ export function MainContent() {
                     disabled={isCreatingChat}
                     maxImages={5}
                   />
+                  {/* Document attachment button */}
+                  <DocumentAttachment
+                    documents={attachedDocuments}
+                    onAdd={handleAddDocument}
+                    onUpdate={handleUpdateDocument}
+                    chatId="" // Component will use onEnsureChatId to get the ID
+                    onEnsureChatId={ensureChatId}
+                    disabled={isCreatingChat}
+                    maxDocuments={5}
+                  />
                   {/* Divider */}
                   <div className="h-5 w-px bg-border/50 mx-1" />
                   {/* Model selector */}
@@ -180,7 +274,7 @@ export function MainContent() {
                   size="icon"
                   className="rounded-full h-9 w-9"
                   onClick={handleSendMessage}
-                  disabled={isCreatingChat || (!message.trim() && attachedImages.length === 0)}
+                  disabled={isCreatingChat || (!message.trim() && attachedImages.length === 0 && attachedDocuments.length === 0)}
                 >
                   <Send className="h-4 w-4" />
                 </Button>

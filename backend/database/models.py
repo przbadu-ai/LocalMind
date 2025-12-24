@@ -123,3 +123,33 @@ class LLMProvider(BaseModel):
     is_default: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Document(BaseModel):
+    """Uploaded document model for PDF support."""
+
+    id: str = Field(default_factory=generate_uuid)
+    chat_id: str
+    filename: str  # Stored filename (may be sanitized)
+    original_filename: str  # Original upload filename
+    mime_type: str = "application/pdf"
+    file_size: Optional[int] = None
+    page_count: Optional[int] = None
+    file_path: Optional[str] = None  # Full path to the original file
+    status: Literal["pending", "processing", "completed", "error"] = "pending"
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DocumentChunk(BaseModel):
+    """Extracted text chunk from a document."""
+
+    id: str = Field(default_factory=generate_uuid)
+    document_id: str
+    chunk_index: int
+    content: str
+    page_number: Optional[int] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
