@@ -1,6 +1,6 @@
 import { useCallback, useRef, ChangeEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { FileText, X, Loader2, AlertCircle, Image as ImageIcon, Music } from 'lucide-react'
+import { Paperclip, X, Loader2, AlertCircle, Image as ImageIcon, Music } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Document, documentService } from '@/services/document-service'
 
@@ -39,16 +39,47 @@ function generateDocumentId(): string {
 function isValidDocumentType(file: File): boolean {
   const validTypes = [
     'application/pdf',
+    // Word
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    // PowerPoint
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    // Excel
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
+    // Web/Text
+    'text/html',
+    'text/markdown',
+    'text/x-markdown',
+    'text/plain',
+    'application/rtf',
+    'text/asciidoc',
+    'application/xml',
+    'text/xml',
+    // Media
     'image/png',
     'image/jpeg',
     'image/webp',
     'image/gif',
+    'image/tiff',
+    'image/bmp',
     'audio/mpeg',
     'audio/wav',
     'audio/ogg',
     'audio/mp4'
   ]
-  return validTypes.includes(file.type)
+  if (validTypes.includes(file.type)) return true
+
+  // Extension-based fallback for common types if MIME type is missing or generic
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const validExtensions = [
+    'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'xlsb',
+    'html', 'htm', 'md', 'txt', 'rtf', 'adoc', 'xml'
+  ]
+
+  return !!extension && validExtensions.includes(extension)
 }
 
 /**
@@ -225,7 +256,7 @@ export function DocumentAttachment({
       <input
         ref={fileInputRef}
         type="file"
-        accept="application/pdf,image/*,audio/*"
+        accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.xlsb,.html,.htm,.md,.txt,.rtf,.adoc,.xml,image/*,audio/*"
         multiple
         onChange={handleFileSelect}
         className="hidden"
@@ -240,9 +271,9 @@ export function DocumentAttachment({
         onClick={handleButtonClick}
         disabled={disabled || !canAddMore}
         className="h-8 w-8 text-muted-foreground hover:text-foreground"
-        title={canAddMore ? 'Attach document, image or audio' : `Maximum ${maxDocuments} documents`}
+        title={canAddMore ? 'Attach document' : `Maximum ${maxDocuments} documents`}
       >
-        <FileText className="h-4 w-4" />
+        <Paperclip className="h-4 w-4" />
       </Button>
     </div>
   )
@@ -296,7 +327,7 @@ export function DocumentPreviewList({
                 ) : doc.file?.type.startsWith('audio/') || doc.document?.mime_type.startsWith('audio/') ? (
                   <Music className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
                 ) : (
-                  <FileText className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
+                  <Paperclip className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
                 )}
               </>
             )}

@@ -26,10 +26,29 @@ MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_MIME_TYPES = [
     "application/pdf",
+    # Office documents
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation", # pptx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",         # xlsx
+    "application/vnd.ms-excel",                                                   # xls
+    "application/vnd.ms-powerpoint",                                             # ppt
+    "application/msword",                                                      # doc
+    # Web/Text formats
+    "text/html",
+    "text/markdown",
+    "text/x-markdown",
+    "text/plain",
+    "text/asciidoc",
+    "application/rtf",
+    "application/xml",
+    "text/xml",
+    # Media formats
     "image/png",
     "image/jpeg",
     "image/webp",
     "image/gif",
+    "image/tiff",
+    "image/bmp",
     "audio/mpeg",
     "audio/wav",
     "audio/ogg",
@@ -123,11 +142,20 @@ async def upload_document(
     logger.info(f"Document upload request received: chat_id={chat_id}, filename={file.filename}")
 
     # Validate file type
-    if file.content_type not in ALLOWED_MIME_TYPES:
-        logger.warning(f"Invalid file type: {file.content_type}")
+    # Check mime type first, then fallback to extension if mime type is generic
+    file_extension = os.path.splitext(file.filename or "")[1].lower()
+    allowed_extensions = [
+        ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".ppt", ".doc",
+        ".html", ".htm", ".md", ".txt", ".rtf", ".adoc", ".xml",
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".tiff", ".bmp",
+        ".mp3", ".wav", ".ogg", ".m4a", ".mp4"
+    ]
+    
+    if file.content_type not in ALLOWED_MIME_TYPES and file_extension not in allowed_extensions:
+        logger.warning(f"Invalid file type: {file.content_type} ({file_extension})")
         return DocumentUploadResponse(
             success=False,
-            error=f"Invalid file type. Only PDF files are supported. Got: {file.content_type}",
+            error=f"Unsupported file type. Supported formats: PDF, MS Office, Markdown, Text, Image, Audio. Got: {file.content_type}",
         )
 
     # Read file content
@@ -198,21 +226,73 @@ async def upload_document(
             error="Failed to create document record",
         )
 
-    # Save to temp file and process
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(content)
-            temp_path = temp_file.name
+    # Identify documents that can be processed by Docling
+    extractable_types = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+        "application/msword",
+        "text/html",
+        "text/markdown",
+        "text/x-markdown",
+        "text/plain",
+        "text/asciidoc",
+        "application/rtf",
+        "application/xml",
+        "text/xml",
+    ]
 
-        # Process the document (extract text, create chunks)
-        if file.content_type == "application/pdf":
-            result = document_service.process_pdf(
-                file_path=temp_path,
+    # Extension-based check for robust detection
+    extractable_extensions = [
+        ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".ppt", ".doc",
+        ".html", ".htm", ".md", ".txt", ".rtf", ".adoc", ".xml"
+    ]
+    file_extension = os.path.splitext(original_filename)[1].lower()
+    is_extractable = (
+        file.content_type in extractable_types or 
+        file_extension in extractable_extensions
+    )
+
+    try:
+        if file_extension == ".txt":
+            # Handle .txt files separately as raw text to bypass Docling
+            try:
+                text_content = content.decode("utf-8")
+            except UnicodeDecodeError:
+                # Fallback to Latin-1 if UTF-8 fails
+                text_content = content.decode("latin-1", errors="replace")
+            
+            result = document_service.process_raw_text(
+                text=text_content,
                 document_id=document_id,
                 original_filename=original_filename,
             )
             success = result.success
             error_message = result.error_message
+        elif is_extractable:
+            # Use original extension for better format detection by Docling
+            suffix = file_extension or ".pdf"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                temp_file.write(content)
+                temp_path = temp_file.name
+
+            try:
+                result = document_service.process_document(
+                    file_path=temp_path,
+                    document_id=document_id,
+                    original_filename=original_filename,
+                )
+                success = result.success
+                error_message = result.error_message
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
         else:
             # For images and audio, we don't extract text yet, just enable preview
             logger.info(f"Skipping text extraction for {file.content_type}, marking as completed")
@@ -220,11 +300,6 @@ async def upload_document(
             success = True
             error_message = None
 
-        # Clean up temp file
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
 
         if success:
             # Fetch updated document

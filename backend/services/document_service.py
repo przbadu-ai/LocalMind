@@ -82,17 +82,18 @@ class DocumentService:
             logger.error(f"Failed to initialize DocumentConverter: {e}")
             raise
 
-    def process_pdf(
+    def process_document(
         self,
         file_path: str,
         document_id: str,
         original_filename: str,
     ) -> DocumentResult:
         """
-        Process a PDF file using Docling and create chunks.
+        Process a document file using Docling and create chunks.
+        Supports PDF, DOCX, PPTX, XLSX, HTML, MD, etc.
 
         Args:
-            file_path: Path to the PDF file
+            file_path: Path to the file
             document_id: ID of the document record
             original_filename: Original filename for display
 
@@ -197,6 +198,54 @@ class DocumentService:
                 filename=original_filename,
                 error_type=error_type,
                 error_message=error_message,
+            )
+
+    def process_raw_text(
+        self,
+        text: str,
+        document_id: str,
+        original_filename: str,
+    ) -> DocumentResult:
+        """
+        Process raw text content and create chunks.
+        Bypasses Docling for simple formats like .txt.
+
+        Args:
+            text: Raw text content
+            document_id: ID of the document record
+            original_filename: Original filename for display
+
+        Returns:
+            DocumentResult with success status and processing info
+        """
+        try:
+            # Update status to processing
+            self.document_repo.update_status(document_id, "processing")
+
+            # Create chunks directly from text
+            chunks = self._create_chunks(text, document_id)
+
+            # Save chunks to repository
+            self.chunk_repo.create_many(chunks)
+
+            # Update status to completed
+            self.document_repo.update_status(document_id, "completed")
+
+            return DocumentResult(
+                success=True,
+                document_id=document_id,
+                filename=original_filename,
+                chunk_count=len(chunks),
+            )
+        except Exception as e:
+            logger.error(f"Error processing raw text {document_id}: {e}")
+            self.document_repo.update_status(document_id, "error")
+            return DocumentResult(
+                success=False,
+                document_id=document_id,
+                filename=original_filename,
+                error_type=type(e).__name__,
+                error_message=str(e),
             )
 
     def _create_chunks(

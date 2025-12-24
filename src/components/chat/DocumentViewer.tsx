@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Loader2, AlertCircle, FileText, Eye, ExternalLink, Image as ImageIcon, Music } from "lucide-react"
+import { Loader2, AlertCircle, Paperclip, Eye, ExternalLink, Image as ImageIcon, Music } from "lucide-react"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { documentService, type Document, type DocumentChunk } from "@/services/document-service"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +18,7 @@ interface DocumentViewerProps {
 export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
     const [document, setDocument] = useState<Document | null>(null)
     const [chunks, setChunks] = useState<DocumentChunk[]>([])
+    const [rawContent, setRawContent] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
@@ -34,6 +35,19 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                 // Limit to 100 chunks for display to avoid forcing too much data
                 const chunksResponse = await documentService.getDocumentChunks(documentId, 100)
                 setChunks(chunksResponse.chunks)
+
+                // If it's a text file, fetch the raw content for the preview tab
+                if (doc.file_url && (doc.mime_type === 'text/plain' || doc.original_filename.toLowerCase().endsWith('.txt') || doc.original_filename.toLowerCase().endsWith('.md'))) {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}${doc.file_url}`)
+                        if (response.ok) {
+                            const text = await response.text()
+                            setRawContent(text)
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch raw text content:", err)
+                    }
+                }
             } catch (err) {
                 console.error("Failed to load document data:", err)
                 setError(err instanceof Error ? err.message : "Failed to load document")
@@ -67,6 +81,7 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                 <AlertCircle className="h-10 w-10 text-destructive mb-4" />
                 <h3 className="text-lg font-semibold text-destructive mb-2">Error Loading Document</h3>
                 <p className="text-muted-foreground">{error}</p>
+                <p className="text-xs text-muted-foreground/50 mt-4">Document ID: {documentId}</p>
             </div>
         )
     }
@@ -84,7 +99,7 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                         ) : document.mime_type.startsWith('audio/') ? (
                             <Music className="h-5 w-5 text-primary" />
                         ) : (
-                            <FileText className="h-5 w-5 text-primary" />
+                            <Paperclip className="h-5 w-5 text-primary" />
                         )}
                     </div>
                     <div className="min-w-0">
@@ -120,7 +135,7 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                             value="content"
                             className="data-[state=active]:bg-background data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-border/50 text-xs px-4 h-7 rounded-sm"
                         >
-                            <FileText className="h-3 w-3 mr-2" />
+                            <Paperclip className="h-3 w-3 mr-2" />
                             Content
                         </TabsTrigger>
                         <TabsTrigger
@@ -141,6 +156,9 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                             ) : (
                                 <div className="text-center py-10 text-muted-foreground">
                                     <p>No text content extracted.</p>
+                                    {rawContent && (
+                                        <p className="text-xs mt-2 italic">Raw content is available in the Preview tab.</p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -150,27 +168,42 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                 <TabsContent value="preview" className="flex-1 overflow-hidden mt-0">
                     {document?.file_url ? (
                         <div className="h-full w-full bg-muted/5 flex flex-col">
-                            <div className="flex-1 w-full overflow-auto flex items-center justify-center p-4">
+                            <div className="flex-1 w-full overflow-hidden flex items-center justify-center">
                                 {document.mime_type.startsWith('image/') ? (
-                                    <img
-                                        src={`${API_BASE_URL}${document.file_url}`}
-                                        alt={document.original_filename}
-                                        className="max-w-full max-h-full object-contain shadow-lg rounded-md"
-                                    />
-                                ) : document.mime_type.startsWith('audio/') ? (
-                                    <div className="flex flex-col items-center gap-6 p-8 bg-card rounded-xl border shadow-sm w-full max-w-md">
-                                        <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
-                                            <Music className="h-10 w-10 text-primary" />
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{document.original_filename}</p>
-                                            <p className="text-xs text-muted-foreground">{formatFileSize(document.file_size || 0)}</p>
-                                        </div>
-                                        <audio
-                                            controls
+                                    <div className="h-full w-full overflow-auto flex items-center justify-center p-4">
+                                        <img
                                             src={`${API_BASE_URL}${document.file_url}`}
-                                            className="w-full"
+                                            alt={document.original_filename}
+                                            className="max-w-full max-h-full object-contain shadow-lg rounded-md"
                                         />
+                                    </div>
+                                ) : document.mime_type.startsWith('audio/') ? (
+                                    <div className="p-4 flex items-center justify-center w-full h-full">
+                                        <div className="flex flex-col items-center gap-6 p-8 bg-card rounded-xl border shadow-sm w-full max-w-md">
+                                            <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
+                                                <Music className="h-10 w-10 text-primary" />
+                                            </div>
+                                            <div className="text-center">
+                                                <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{document.original_filename}</p>
+                                                <p className="text-xs text-muted-foreground">{formatFileSize(document.file_size || 0)}</p>
+                                            </div>
+                                            <audio
+                                                controls
+                                                src={`${API_BASE_URL}${document.file_url}`}
+                                                className="w-full"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : rawContent !== null ? (
+                                    <div className="h-full w-full bg-card rounded-none border-0 overflow-hidden flex flex-col">
+                                        <div className="p-2 bg-muted/30 border-b border-border text-[10px] text-muted-foreground uppercase tracking-wider px-4">
+                                            Raw Text Preview
+                                        </div>
+                                        <ScrollArea className="flex-1">
+                                            <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-words">
+                                                {rawContent}
+                                            </pre>
+                                        </ScrollArea>
                                     </div>
                                 ) : (
                                     <iframe
@@ -194,8 +227,8 @@ export function DocumentViewer({ documentId, onClose }: DocumentViewerProps) {
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground bg-muted/10">
-                            <FileText className="h-16 w-16 mb-4 opacity-20" />
-                            <p className="font-medium">PDF Preview Not Available</p>
+                            <Paperclip className="h-16 w-16 mb-4 opacity-20" />
+                            <p className="font-medium">Document Preview Not Available</p>
                             <p className="text-sm max-w-sm mt-2">
                                 Original file storage is not enabled for this document.
                                 <br />

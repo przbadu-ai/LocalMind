@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check, FileText } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check, Paperclip } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -1127,7 +1127,7 @@ export default function ChatDetail() {
                         }}
                       >
                         <div className="flex items-center gap-3">
-                          <FileText className="h-4 w-4 text-blue-500" />
+                          <Paperclip className="h-4 w-4 text-blue-500" />
                           <div className="min-w-0">
                             <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
                               {doc.name}
