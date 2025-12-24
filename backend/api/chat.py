@@ -19,6 +19,30 @@ from services.llm_service import ChatMessage, LLMService, StreamChunk, ToolCall,
 from services.mcp_service import mcp_service
 from services.youtube_service import youtube_service
 from utils.youtube_utils import find_youtube_urls
+from utils.web_scraper import fetch_and_extract
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Internal Tools Definitions
+FETCH_URL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "fetch_url",
+        "description": "Web Fetch - Fetch and read content from a URL. Use this to read articles, documentation, or web pages when a user provides a URL.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch content from"
+                }
+            },
+            "required": ["url"]
+        }
+    }
+}
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +80,9 @@ class ChatStreamRequest(BaseModel):
     think: bool = True
     # Optional documents for RAG artifacts in chat thread
     documents: Optional[list[dict[str, Any]]] = None
+    # Resume generation from a specific tool call (after approval)
+    resume_from_tool_call: Optional[dict[str, Any]] = None
+
 
 
 class CancelStreamRequest(BaseModel):
@@ -92,6 +119,7 @@ async def stream_chat_response(
     images: Optional[list[ImageData]] = None,
     think: bool = True,
     documents: Optional[list[dict[str, Any]]] = None,
+    resume_from_tool_call: Optional[dict[str, Any]] = None,
 ):
     """Generate streaming chat response.
 
@@ -103,6 +131,8 @@ async def stream_chat_response(
         stream_id: Optional stream ID for cancellation support
         images: Optional list of base64-encoded images for vision models
         think: Whether to enable thinking/reasoning output for supported models
+        documents: Optional RAG documents
+        resume_from_tool_call: Optional tool call result to resume from (skips initial generation)
     """
     # Set up cancellation event
     cancel_event = asyncio.Event()
@@ -324,6 +354,10 @@ Use this document content to answer the user's questions. Reference specific sec
         except Exception as e:
             logger.warning(f"Failed to load MCP tools: {e}")
 
+        # Inject Internal Tools (fetch_url)
+        mcp_tools.append(FETCH_URL_TOOL)
+
+
         # Add tool descriptions to system prompt so LLM knows about available tools
         if mcp_tools:
             tool_descriptions = []
@@ -333,6 +367,11 @@ Use this document content to answer the user's questions. Reference specific sec
                 display_name = full_name.split("__")[-1] if "__" in full_name else full_name
                 desc = tool["function"].get("description", "No description")
                 tool_descriptions.append(f"- **{display_name}**: {desc}")
+            
+            # Ensure fetch_url is documented clearly
+            if "fetch_url" not in [t.split("**")[1].split(":")[0] for t in tool_descriptions if "**" in t]:
+                 tool_descriptions.append("- **fetch_url**: Web Fetch - Fetch and read content from a URL.")
+
 
             tools_section = f"""
 
@@ -371,18 +410,58 @@ You have access to the following tools. Use them when you need real-time or accu
         full_thinking = ""  # Track thinking/reasoning content separately
         all_tool_calls: list[dict[str, Any]] = []  # Track all tool calls for this response
         generation_metrics: Optional[dict[str, Any]] = None  # Track generation metrics
+        
+        # If resuming, we skip the initial LLM call and jump to processing the resumed tool result
+        pending_tool_calls: list[ToolCall] = []
+        is_resuming = False
+        
+        if resume_from_tool_call:
+            is_resuming = True
+            logger.info(f"Resuming chat from tool call: {resume_from_tool_call.get('name')}")
+            
+            # Reconstruct the pending tool call from the resume data
+            # The resume_data should contain: {id, name, arguments, result}
+            resumed_tool_call = ToolCall(
+                id=resume_from_tool_call["id"],
+                name=resume_from_tool_call["name"],
+                arguments=resume_from_tool_call["arguments"]
+            )
+            pending_tool_calls.append(resumed_tool_call)
+            
+            # We already have the result, so we'll add it to all_tool_calls immediately
+            # effectively mocking that it was executed
+            all_tool_calls.append({
+                "id": resumed_tool_call.id,
+                "name": resume_from_tool_call["name"],
+                "arguments": resume_from_tool_call["arguments"],
+                "result": resume_from_tool_call.get("result"),
+                "error": resume_from_tool_call.get("error")
+            })
 
+            # Since we are resuming with a completed tool call, we need to ensure the CONTEXT
+            # has the assistant message that requested it.
+            # Ideally the frontend sends the conversation_id, so recent_messages loop above 
+            # captured the assistant's previous "call".
+            # However, if we just Saved it before pausing, it should be there.
+        
         try:
             # Single pass - either stream content OR execute tools (not both in a loop)
-            pending_tool_calls: list[ToolCall] = []
+            # pending_tool_calls is empty unless resuming
+            
+            # Use an iterator variable so we don't have to indent the huge loop body
+            stream_iterator = []
+            if not is_resuming:
+                stream_iterator = chat_llm_service.chat_stream(
+                    context_messages,
+                    temperature=temperature,
+                    tools=mcp_tools if mcp_tools else None,
+                    think=think,
+                )
 
-            # Stream the LLM response
-            for chunk in chat_llm_service.chat_stream(
-                context_messages,
-                temperature=temperature,
-                tools=mcp_tools if mcp_tools else None,
-                think=think,
-            ):
+            # Stream the LLM response (Normal path)
+            for chunk in stream_iterator:
+
+
                 # Check for cancellation
                 if cancel_event.is_set():
                     yield {
@@ -421,6 +500,8 @@ You have access to the following tools. Use them when you need real-time or accu
                         generation_metrics = chunk.metrics.model_dump(exclude_none=True)
                     break
 
+                    return
+
             # Execute any tool calls that were requested
             if pending_tool_calls:
                 # Check for cancellation before tool execution
@@ -440,65 +521,138 @@ You have access to the following tools. Use them when you need real-time or accu
                     # Check for cancellation before each tool
                     if cancel_event.is_set():
                         yield {
-                            "event": "message",
-                            "data": json.dumps({
-                                "type": "cancelled",
-                                "message": "Stream cancelled by user",
-                            }),
-                        }
+                             "event": "message",
+                             "data": json.dumps({
+                                 "type": "cancelled",
+                                 "message": "Stream cancelled by user",
+                             }),
+                         }
                         return
 
-                    # Parse the prefixed tool name
-                    _, original_tool_name = mcp_service.parse_tool_name(tool_call.name)
-                    server_id = tool_to_server.get(tool_call.name, "")
+                    # SPECIAL HANDLING FOR INTERNAL TOOLS (fetch_url) - Permission Check    
+                    if tool_call.name == "fetch_url" and not is_resuming:
+                        # If we just generated this call (not resuming), we MUST PAUSE.
+                        logger.info("Internal tool call detected - Pausing for user permission")
+                        
+                        # Save the assistant message with the tool call (status="executing"/"pending")
+                        # This ensures when we reload history, we see the tool call.
+                        assistant_msg = Message(
+                            chat_id=conversation_id,
+                            role="assistant",
+                            content=full_response, # Might be empty or have text before the tool
+                            tool_calls=[ToolCallData(
+                                id=tool_call.id,
+                                name=tool_call.name,
+                                arguments=tool_call.arguments,
+                                status="requires_action", # Represents 'waiting for user'
+                            )]
+                        )
+                        message_repo.create(assistant_msg)
+                        
+                        # 1. Notify frontend about the tool call FIRST so it can initialize the entry
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "tool_call",
+                                "tool_call_id": tool_call.id,
+                                "tool_name": "fetch_url",
+                                "tool_args": tool_call.arguments,
+                                "server_id": "", # Internal tool
+                            }),
+                        }
 
-                    # Notify frontend about tool call
-                    yield {
-                        "event": "message",
-                        "data": json.dumps({
-                            "type": "tool_call",
-                            "tool_call_id": tool_call.id,
-                            "tool_name": original_tool_name,
-                            "tool_args": tool_call.arguments,
-                            "server_id": server_id,
-                        }),
-                    }
+                        # 2. Notify frontend to show permission UI
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "tool_approval_required",
+                                "tool_call_id": tool_call.id,
+                                "tool_name": "fetch_url",
+                                "tool_args": tool_call.arguments,
+                            }),
+                        }
+                        
+                        # End stream gracefully (it will be resumed by a new request)
+                        return
 
-                    # Execute the tool
+                    # Normal MCP Tool Execution (or handling the RESUMED internal tool)
+                    
+                    # If is_resuming, we already have result in all_tool_calls for this tool
+                    # We just need to skip execution and grab the result
                     tool_result: Any = {"error": "Tool execution failed"}
-                    try:
-                        if server_id:
-                            tool_result = await mcp_service.call_tool(
-                                server_id, original_tool_name, tool_call.arguments
-                            )
-                        else:
-                            tool_result = {"error": f"No server found for tool {tool_call.name}"}
-                    except Exception as e:
-                        logger.error(f"Tool execution error: {e}")
-                        tool_result = {"error": str(e)}
+                    original_tool_name = tool_call.name
+                    server_id = ""
 
-                    # Notify frontend about tool result
-                    yield {
-                        "event": "message",
-                        "data": json.dumps({
-                            "type": "tool_result",
-                            "tool_call_id": tool_call.id,
-                            "tool_name": original_tool_name,
+                    if is_resuming and tool_call.name == "fetch_url":
+                         # Find the result we injected
+                         found = next((t for t in all_tool_calls if t["id"] == tool_call.id), None)
+                         if found:
+                             tool_result = found.get("result")
+                             original_tool_name = "fetch_url"
+                             logger.info("Using injected result for resumed tool call")
+                    else:
+                        # STANDARD MCP LOGIC
+                        # Parse the prefixed tool name
+                        _, original_tool_name = mcp_service.parse_tool_name(tool_call.name)
+                        server_id = tool_to_server.get(tool_call.name, "")
+
+                        # Notify frontend about tool call (only if not resuming/already visible)
+                        if not is_resuming:
+                             yield {
+                                 "event": "message",
+                                 "data": json.dumps({
+                                     "type": "tool_call",
+                                     "tool_call_id": tool_call.id,
+                                     "tool_name": original_tool_name,
+                                     "tool_args": tool_call.arguments,
+                                     "server_id": server_id,
+                                 }),
+                             }
+
+                        # Execute the tool
+                        try:
+                            if tool_call.name == "fetch_url":
+                                # If we are here, it means we are NOT pausing (maybe we implement auto-run later?)
+                                # BUT we enforce permission for fetch_url. 
+                                # So this block is theoretically unreachable unless we add logic to skip permission.
+                                # Or if we resume but somehow missed the is_resuming check?
+                                # For safety, let's execute it if we fall through here (e.g. permission flag unused)
+                                url = tool_call.arguments.get("url")
+                                tool_result = fetch_and_extract(url)
+                            elif server_id:
+                                tool_result = await mcp_service.call_tool(
+                                    server_id, original_tool_name, tool_call.arguments
+                                )
+                            else:
+                                tool_result = {"error": f"No server found for tool {tool_call.name}"}
+                        except Exception as e:
+                            logger.error(f"Tool execution error: {e}")
+                            tool_result = {"error": str(e)}
+
+                        # Notify frontend about tool result (Real-time update)
+                        yield {
+                             "event": "message",
+                             "data": json.dumps({
+                                 "type": "tool_result",
+                                 "tool_call_id": tool_call.id,
+                                 "tool_name": original_tool_name,
+                                 "result": tool_result,
+                                 "error": None if not isinstance(tool_result, dict) or "error" not in tool_result else tool_result["error"]
+                             }),
+                        }
+    
+                        # Track tool call for the response
+                        all_tool_calls.append({
+                            "id": tool_call.id,
+                            "name": original_tool_name,
+                            "arguments": tool_call.arguments,
                             "result": tool_result,
-                        }),
-                    }
-
-                    # Track tool call for the response
-                    all_tool_calls.append({
-                        "id": tool_call.id,
-                        "name": original_tool_name,
-                        "arguments": tool_call.arguments,
-                        "result": tool_result,
-                    })
+                        })
 
                     # Collect result for building response
                     result_str = json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
                     tool_results_for_response.append(f"Tool {original_tool_name} result: {result_str}")
+
 
                 # Build context with tool results for final response
                 context_messages.append(ChatMessage(
@@ -677,6 +831,7 @@ async def chat_stream(request: ChatStreamRequest):
             images=request.images,
             think=request.think,
             documents=request.documents,
+            resume_from_tool_call=request.resume_from_tool_call,
         ),
         media_type="text/event-stream",
     )

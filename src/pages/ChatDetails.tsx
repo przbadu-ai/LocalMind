@@ -413,6 +413,238 @@ export default function ChatDetail() {
     }
   }, [showStackedView])
 
+  // Resume generation after tool approval
+  const continueGeneration = useCallback(async (resumeData: any, assistantMessageId: string) => {
+    console.log('Resuming generation with:', resumeData)
+
+    // Create new abort controller
+    const controller = new AbortController()
+    setAbortController(controller)
+    const streamId = `stream-resume-${Date.now()}`
+    setCurrentStreamId(streamId)
+
+    try {
+      setLoadingMessage("Resuming generation...")
+
+      // Get the last user message for context if needed, but the backend uses conversation_id
+      // We pass the last user message content just in case, though usually it's ignored on resume
+      const lastUserMsg = messages.filter(m => m.type === 'user').pop()
+
+      const streamGenerator = chatService.streamChat(
+        lastUserMsg?.content || "",
+        conversationIdRef.current,
+        {
+          temperature: 0.7, // Should match original request
+          resume_from_tool_call: resumeData
+        }
+      )
+
+      let fullResponse = ""
+      let hasStartedStreaming = false
+
+      // We need to accumulate from existing content if we are appending?
+      // Actually usually resume just continues.
+      // But we need to make sure we don't overwrite the *previous* content if checking logic handles it.
+      // In this app, `fullResponse` is the *delta* or *full*?
+      // Looking at sendMessage: `fullResponse += data.content`
+      // So it accumulates. 
+      // We should Initialize fullResponse with CURRENT assistant content?
+      // The backend streams the *rest* of the response.
+      // So we should append to existing.
+
+      // Update: The backend `stream_chat_response` yields chunks.
+      // If we use the same `update` logic:
+      // `msg.content = buildMessageContent()` where `fullResponse` is local.
+      // If we start `fullResponse` empty, we will overwrite the *beginning* of the message?
+      // NO. The `setMessages` usage:
+      // `{ ...msg, content: buildMessageContent() }`
+      // `buildMessageContent` uses `fullResponse`.
+      // So `fullResponse` MUST start with what's already there!
+
+      const assistantMsg = messages.find(m => m.id === assistantMessageId)
+      if (assistantMsg) {
+        fullResponse = assistantMsg.content
+        // We also need to preserve thinking/tool calls.
+        // current logic preserves toolCalls.
+        // content is replaced.
+      }
+
+      for await (const data of streamGenerator) {
+        if (data.type === 'content') {
+          if (!hasStartedStreaming) {
+            hasStartedStreaming = true
+            setLoadingMessage("")
+            // On first chunk, if we are resuming, we might want to ensure we don't double-add if backend resends?
+            // Backend sends *new* tokens.
+          }
+          fullResponse += data.content
+          setMessages(prev => prev.map(msg =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: fullResponse }
+              : msg
+          ))
+          requestAnimationFrame(scrollToBottom)
+        } else if (data.type === 'tool_result') {
+          // Handle tool result (e.g. if the *resumed* tool returns result immediately? 
+          // The backend might yield 'tool_result' for the resumed tool first)
+          setMessages(prev => {
+            return prev.map(msg =>
+              msg.id === assistantMessageId
+                ? {
+                  ...msg,
+                  toolCalls: msg.toolCalls?.map(tc =>
+                    tc.id === data.tool_call_id
+                      ? {
+                        ...tc,
+                        status: data.error ? 'error' as const : 'completed' as const,
+                        result: data.result,
+                        error: data.error,
+                      }
+                      : tc
+                  )
+                }
+                : msg
+            )
+          })
+        } else if (data.type === 'tool_call') {
+          // Another tool call?
+          const newToolCall = {
+            id: data.tool_call_id,
+            name: data.tool_name,
+            arguments: data.tool_args || {},
+            status: 'executing' as const, // TS fix: cast to specific union member
+          }
+          setMessages(prev => prev.map(msg =>
+            msg.id === assistantMessageId
+              ? { ...msg, toolCalls: [...(msg.toolCalls || []), newToolCall] }
+              : msg
+          ))
+        } else if (data.type === 'tool_approval_required') {
+          // Nested tool call requiring approval
+          setMessages(prev => prev.map(msg => {
+            if (msg.id !== assistantMessageId) return msg;
+
+            const toolCalls = msg.toolCalls || [];
+            const existingToolCall = toolCalls.find(tc => tc.id === data.tool_call_id);
+
+            if (existingToolCall) {
+              return {
+                ...msg,
+                toolCalls: toolCalls.map(tc =>
+                  tc.id === data.tool_call_id
+                    ? { ...tc, status: 'requires_action' as const }
+                    : tc
+                )
+              };
+            } else {
+              // Create it if it doesn't exist
+              return {
+                ...msg,
+                toolCalls: [...toolCalls, {
+                  id: data.tool_call_id,
+                  name: data.tool_name || 'fetch_url',
+                  arguments: data.tool_args || {},
+                  status: 'requires_action' as const
+                }]
+              };
+            }
+          }))
+          setLoadingMessage("Waiting for approval...")
+          setIsExecutingTools(false)
+          return // Stop stream
+        } else if (data.type === 'done') {
+          setLoadingMessage("")
+        }
+      }
+
+    } catch (error) {
+      console.error("Resume error:", error)
+      // Handle error...
+    } finally {
+      setIsExecutingTools(false)
+      setAbortController(null)
+      setCurrentStreamId(null)
+    }
+  }, [messages])
+
+  // Handle tool approval action
+  const handleToolAction = useCallback(async (toolCallId: string, action: 'approve' | 'deny', toolName: string, toolArgs: any) => {
+    // Find message ID
+    const message = messages.find(m => m.toolCalls?.some(tc => tc.id === toolCallId))
+    if (!message) return
+
+    if (action === 'deny') {
+      setMessages(prev => prev.map(msg =>
+        msg.id === message.id
+          ? {
+            ...msg,
+            toolCalls: msg.toolCalls?.map(tc =>
+              tc.id === toolCallId
+                ? { ...tc, status: 'error' as const, error: 'User denied permission' }
+                : tc
+            )
+          }
+          : msg
+      ))
+      return
+    }
+
+    // Approve
+    try {
+      setIsExecutingTools(true)
+      setLoadingMessage("Executing tool...")
+
+      const response = await chatService.approveToolCall({
+        conversation_id: conversationIdRef.current,
+        tool_call_id: toolCallId,
+        approved: true,
+        tool_name: toolName,
+        tool_args: toolArgs
+      })
+
+      if (response && response.success && response.resume_data) {
+        // Optimistically update the tool call status to 'completed' / 'Approved'
+        setMessages(prev => prev.map(msg =>
+          msg.id === message.id
+            ? {
+              ...msg,
+              toolCalls: msg.toolCalls?.map(tc =>
+                tc.id === toolCallId
+                  ? { ...tc, status: 'completed' as const, result: response.result }
+                  : tc
+              )
+            }
+            : msg
+        ))
+
+        // Resume stream
+        await continueGeneration(response.resume_data, message.id)
+      } else {
+        // Handle error
+        const errorMsg = response?.result?.error || response?.error || 'Failed to process request';
+        setMessages(prev => prev.map(msg =>
+          msg.id === message.id
+            ? {
+              ...msg,
+              toolCalls: msg.toolCalls?.map(tc =>
+                tc.id === toolCallId
+                  ? { ...tc, status: 'error' as const, error: errorMsg }
+                  : tc
+              )
+            }
+            : msg
+        ))
+        setIsExecutingTools(false)
+        setLoadingMessage("")
+      }
+    } catch (error) {
+      console.error("Approval error:", error)
+      setIsExecutingTools(false)
+      setLoadingMessage("")
+    }
+  }, [messages, continueGeneration])
+
+
   // Send message function that accepts an optional message parameter and optional images/docs
   const sendMessage = useCallback(async (messageToSend: string, imagesOverride?: AttachedImage[], documentsOverride?: AttachedDocument[]) => {
     // Use override images/docs if provided, otherwise use state
@@ -694,6 +926,7 @@ export default function ChatDetail() {
                         status: 'executing' as const,
                       }
 
+
                       setMessages(prev => {
                         // Find or create the assistant message
                         const existingAssistant = prev.find(m => m.id === assistantMessageId)
@@ -796,8 +1029,50 @@ export default function ChatDetail() {
                       setLoadingMessage("")
                       isSubmittingRef.current = false
                       return
+                    } else if (data.type === 'tool_approval_required') {
+                      // Handle permission request
+                      setMessages(prev => prev.map(msg => {
+                        if (msg.id !== assistantMessageId) return msg;
+
+                        const toolCalls = msg.toolCalls || [];
+                        const existingToolCall = toolCalls.find(tc => tc.id === data.tool_call_id);
+
+                        if (existingToolCall) {
+                          // Only update to requires_action if it's currently executing
+                          // This prevents resetting status if it's already 'error' (denied) or 'completed'
+                          if (existingToolCall.status !== 'executing' && existingToolCall.status !== undefined) {
+                            return msg;
+                          }
+
+                          return {
+                            ...msg,
+                            toolCalls: toolCalls.map(tc =>
+                              tc.id === data.tool_call_id
+                                ? { ...tc, status: 'requires_action' as const }
+                                : tc
+                            )
+                          };
+                        } else {
+                          // Create it if it doesn't exist
+                          return {
+                            ...msg,
+                            toolCalls: [...toolCalls, {
+                              id: data.tool_call_id,
+                              name: data.tool_name || 'fetch_url',
+                              arguments: data.tool_args || {},
+                              status: 'requires_action' as const
+                            }]
+                          };
+                        }
+                      }))
+                      setIsExecutingTools(false)
+                      setLoadingMessage("Waiting for approval...")
+                      requestAnimationFrame(scrollToBottom)
+                      // Break the loop (pause stream)
+                      break
                     } else if (data.type === 'error') {
                       if (data.error.toLowerCase().includes('llm') || data.error.toLowerCase().includes('connection')) {
+
                         throw new Error('ollama_connection_failed')
                       }
                       throw new Error(data.error)
@@ -968,8 +1243,9 @@ export default function ChatDetail() {
               <div key={msg.id} className="space-y-3">
                 {/* Tool calls appear ABOVE assistant message content */}
                 {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <ToolCallAccordion toolCalls={msg.toolCalls} />
+                  <ToolCallAccordion toolCalls={msg.toolCalls} onAction={handleToolAction} />
                 )}
+
                 <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
                     ? 'bg-muted text-muted-foreground'

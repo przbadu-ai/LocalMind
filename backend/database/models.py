@@ -40,7 +40,7 @@ class ToolCallData(BaseModel):
     id: str
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    status: Literal["executing", "completed", "error"] = "completed"
+    status: Literal["executing", "completed", "error", "requires_action"] = "completed"
     result: Optional[Any] = None
     error: Optional[str] = None
 
