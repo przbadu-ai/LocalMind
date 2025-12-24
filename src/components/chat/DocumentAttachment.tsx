@@ -1,6 +1,6 @@
 import { useCallback, useRef, ChangeEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { FileText, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { FileText, X, Loader2, AlertCircle, Image as ImageIcon, Music } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Document, documentService } from '@/services/document-service'
 
@@ -37,7 +37,17 @@ function generateDocumentId(): string {
  * Validate that a file is an acceptable document type
  */
 function isValidDocumentType(file: File): boolean {
-  const validTypes = ['application/pdf']
+  const validTypes = [
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/ogg',
+    'audio/mp4'
+  ]
   return validTypes.includes(file.type)
 }
 
@@ -171,7 +181,7 @@ export function DocumentAttachment({
 
         // Validate file type
         if (!isValidDocumentType(file)) {
-          console.warn(`Invalid file type: ${file.type}. Only PDF files are supported.`)
+          console.warn(`Invalid file type: ${file.type}. Only PDF, images, and audio files are supported.`)
           continue
         }
 
@@ -215,7 +225,7 @@ export function DocumentAttachment({
       <input
         ref={fileInputRef}
         type="file"
-        accept="application/pdf"
+        accept="application/pdf,image/*,audio/*"
         multiple
         onChange={handleFileSelect}
         className="hidden"
@@ -230,7 +240,7 @@ export function DocumentAttachment({
         onClick={handleButtonClick}
         disabled={disabled || !canAddMore}
         className="h-8 w-8 text-muted-foreground hover:text-foreground"
-        title={canAddMore ? 'Attach PDF document' : `Maximum ${maxDocuments} documents`}
+        title={canAddMore ? 'Attach document, image or audio' : `Maximum ${maxDocuments} documents`}
       >
         <FileText className="h-4 w-4" />
       </Button>
@@ -273,16 +283,22 @@ export function DocumentPreviewList({
             }
           }}
         >
-          {/* Status icon */}
+          {/* Main icon */}
           <div className="flex-shrink-0">
             {doc.status === 'uploading' || doc.status === 'processing' ? (
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
             ) : doc.status === 'error' ? (
               <AlertCircle className="h-5 w-5 text-destructive" />
-            ) : doc.status === 'completed' ? (
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
             ) : (
-              <FileText className="h-5 w-5 text-muted-foreground" />
+              <>
+                {doc.file?.type.startsWith('image/') || doc.document?.mime_type.startsWith('image/') ? (
+                  <ImageIcon className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
+                ) : doc.file?.type.startsWith('audio/') || doc.document?.mime_type.startsWith('audio/') ? (
+                  <Music className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
+                ) : (
+                  <FileText className={cn("h-5 w-5", doc.status === 'completed' ? "text-green-500" : "text-muted-foreground")} />
+                )}
+              </>
             )}
           </div>
 
@@ -307,7 +323,10 @@ export function DocumentPreviewList({
           {!disabled && (
             <button
               type="button"
-              onClick={() => onRemove(doc.id)}
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove(doc.id)
+              }}
               className={cn(
                 'p-1 rounded-full',
                 'bg-background/80 hover:bg-destructive hover:text-destructive-foreground',
@@ -323,6 +342,7 @@ export function DocumentPreviewList({
     </div>
   )
 }
+
 
 /**
  * Format file size helper exported for external use

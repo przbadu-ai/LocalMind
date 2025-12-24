@@ -135,6 +135,7 @@ class Document(BaseModel):
     mime_type: str = "application/pdf"
     file_size: Optional[int] = None
     page_count: Optional[int] = None
+    file_path: Optional[str] = None  # Full path to the original file
     status: Literal["pending", "processing", "completed", "error"] = "pending"
     error_message: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

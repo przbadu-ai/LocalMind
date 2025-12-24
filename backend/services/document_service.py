@@ -303,7 +303,15 @@ class DocumentService:
         return self.chunk_repo.get_by_document_id(document_id, limit=limit)
 
     def delete_document(self, document_id: str) -> bool:
-        """Delete a document and its chunks."""
+        """Delete a document, its chunks, and the original file."""
+        doc = self.document_repo.get_by_id(document_id)
+        if doc and doc.file_path and os.path.exists(doc.file_path):
+            try:
+                os.remove(doc.file_path)
+                logger.info(f"Deleted original file: {doc.file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete original file {doc.file_path}: {e}")
+
         return self.document_repo.delete(document_id)
 
     def build_context_from_documents(

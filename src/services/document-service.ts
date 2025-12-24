@@ -22,6 +22,7 @@ export interface Document {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+  file_url?: string;
 }
 
 export interface DocumentChunk {

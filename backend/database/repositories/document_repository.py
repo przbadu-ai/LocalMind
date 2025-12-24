@@ -15,8 +15,8 @@ class DocumentRepository:
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO documents (id, chat_id, filename, original_filename, mime_type, file_size, page_count, status, error_message, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO documents (id, chat_id, filename, original_filename, mime_type, file_size, page_count, file_path, status, error_message, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document.id,
@@ -26,6 +26,7 @@ class DocumentRepository:
                     document.mime_type,
                     document.file_size,
                     document.page_count,
+                    document.file_path,
                     document.status,
                     document.error_message,
                     document.created_at.isoformat(),
@@ -124,6 +125,7 @@ class DocumentRepository:
             mime_type=row["mime_type"],
             file_size=row["file_size"],
             page_count=row["page_count"],
+            file_path=row["file_path"] if "file_path" in row.keys() else None,
             status=row["status"],
             error_message=row["error_message"],
             created_at=datetime.fromisoformat(row["created_at"]),

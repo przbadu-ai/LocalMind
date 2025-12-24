@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from database.models import Document
@@ -23,7 +24,17 @@ router = APIRouter()
 # Configuration
 MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_MIME_TYPES = ["application/pdf"]
+ALLOWED_MIME_TYPES = [
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/ogg",
+    "audio/mp4",
+]
 
 
 class DocumentResponse(BaseModel):
@@ -40,6 +51,7 @@ class DocumentResponse(BaseModel):
     error_message: Optional[str] = None
     created_at: str
     updated_at: str
+    file_url: Optional[str] = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -76,6 +88,11 @@ class DocumentChunksResponse(BaseModel):
 
 def document_to_response(doc: Document) -> DocumentResponse:
     """Convert Document model to response."""
+    # Construct file URL if it's stored
+    file_url = None
+    if doc.filename:
+        file_url = f"/api/v1/documents/file/{doc.id}"
+
     return DocumentResponse(
         id=doc.id,
         chat_id=doc.chat_id,
@@ -88,6 +105,7 @@ def document_to_response(doc: Document) -> DocumentResponse:
         error_message=doc.error_message,
         created_at=doc.created_at.isoformat(),
         updated_at=doc.updated_at.isoformat(),
+        file_url=file_url,
     )
 
 
@@ -142,6 +160,22 @@ async def upload_document(
     # Sanitize filename for storage
     safe_filename = f"{document_id}.pdf"
 
+    # Define storage path
+    storage_dir = os.path.join("data", "storage", "documents")
+    os.makedirs(storage_dir, exist_ok=True)
+    file_path = os.path.join(storage_dir, safe_filename)
+
+    # Save content to permanent storage
+    try:
+        with open(file_path, "wb") as f:
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Error saving document to storage: {e}")
+        return DocumentUploadResponse(
+            success=False,
+            error="Failed to save document to storage",
+        )
+
     # Create document record
     document_repo = DocumentRepository()
     doc = Document(
@@ -151,6 +185,7 @@ async def upload_document(
         original_filename=original_filename,
         mime_type=file.content_type or "application/pdf",
         file_size=file_size,
+        file_path=file_path,
         status="pending",
     )
 
@@ -170,11 +205,20 @@ async def upload_document(
             temp_path = temp_file.name
 
         # Process the document (extract text, create chunks)
-        result = document_service.process_pdf(
-            file_path=temp_path,
-            document_id=document_id,
-            original_filename=original_filename,
-        )
+        if file.content_type == "application/pdf":
+            result = document_service.process_pdf(
+                file_path=temp_path,
+                document_id=document_id,
+                original_filename=original_filename,
+            )
+            success = result.success
+            error_message = result.error_message
+        else:
+            # For images and audio, we don't extract text yet, just enable preview
+            logger.info(f"Skipping text extraction for {file.content_type}, marking as completed")
+            document_repo.update_status(document_id, "completed")
+            success = True
+            error_message = None
 
         # Clean up temp file
         try:
@@ -182,34 +226,26 @@ async def upload_document(
         except Exception:
             pass
 
-        logger.info(f"Document processing result: success={result.success}, chunks={result.chunk_count}")
-
-        if result.success:
+        if success:
             # Fetch updated document
             updated_doc = document_repo.get_by_id(document_id)
-            logger.info(f"Fetched updated document: {updated_doc.id if updated_doc else 'None'}, status={updated_doc.status if updated_doc else 'N/A'}")
             if updated_doc:
-                response = DocumentUploadResponse(
+                return DocumentUploadResponse(
                     success=True,
                     document=document_to_response(updated_doc),
                 )
-                logger.info(f"Returning successful response for document {document_id}")
-                return response
             else:
-                response = DocumentUploadResponse(
+                return DocumentUploadResponse(
                     success=True,
                     document=document_to_response(doc),
                 )
-                logger.info(f"Returning response with original doc for document {document_id}")
-                return response
         else:
             # Fetch document with error status
             error_doc = document_repo.get_by_id(document_id)
-            logger.error(f"Document processing failed: {result.error_message}")
             return DocumentUploadResponse(
                 success=False,
                 document=document_to_response(error_doc) if error_doc else None,
-                error=result.error_message,
+                error=error_message,
             )
 
     except Exception as e:
@@ -294,4 +330,18 @@ async def get_document_chunks(
             for chunk in chunks
         ],
         total=len(chunks),
+    )
+
+@router.get("/documents/file/{document_id}")
+async def get_document_file(document_id: str):
+    """Get the original document file."""
+    doc = document_service.get_document(document_id)
+    if not doc or not doc.file_path or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="Document file not found")
+    
+    return FileResponse(
+        path=doc.file_path,
+        filename=doc.original_filename,
+        media_type=doc.mime_type,
+        content_disposition_type="inline"
     )
