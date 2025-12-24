@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check, FileText } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
 import { API_BASE_URL, OLLAMA_BASE_URL } from "@/config/app-config"
@@ -108,6 +109,8 @@ export default function ChatDetail() {
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
   // Document attachment state
   const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([])
+  // Image preview state for maximized view
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt?: string } | null>(null)
   // Thinking/reasoning toggle (for models like deepseek-r1, qwen3)
   const [thinkingEnabled, setThinkingEnabled] = useState(true)
   // Add a local state for wider "compact" view support (e.g. tablets or narrow desktop windows)
@@ -999,7 +1002,11 @@ export default function ChatDetail() {
                                     key={idx}
                                     src={img.preview || `data:${img.mimeType};base64,${img.data}`}
                                     alt={`Attached image ${idx + 1}`}
-                                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity active:scale-[0.98]"
+                                    onClick={() => setPreviewImage({
+                                      src: img.preview || `data:${img.mimeType};base64,${img.data}`,
+                                      alt: `Attached image ${idx + 1}`
+                                    })}
                                   />
                                 ))}
                               </div>
@@ -1183,6 +1190,7 @@ export default function ChatDetail() {
             <ImagePreviewList
               images={attachedImages}
               onRemove={handleRemoveImage}
+              onImageClick={(img) => setPreviewImage({ src: img.preview, alt: img.name })}
               disabled={isLoading}
             />
           )}
@@ -1492,6 +1500,27 @@ export default function ChatDetail() {
           )}
         </ResizablePanelGroup>
       </div>
+
+      {/* Image Lightbox */}
+      <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 overflow-hidden bg-transparent border-none shadow-none flex items-center justify-center">
+          {previewImage && (
+            <div className="relative group">
+              <img
+                src={previewImage.src}
+                alt={previewImage.alt || 'Preview'}
+                className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+              />
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="absolute -top-4 -right-4 h-10 w-10 rounded-full bg-background/80 hover:bg-background border border-border flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
