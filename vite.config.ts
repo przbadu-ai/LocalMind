@@ -30,15 +30,15 @@ export default defineConfig(async () => ({
     host: tauriHost || "0.0.0.0",
     hmr: tauriHost
       ? {
-          protocol: "ws",
-          host: tauriHost,
-          port: 1421,
-        }
+        protocol: "ws",
+        host: tauriHost,
+        port: 1421,
+      }
       : {
-          protocol: "ws",
-          host: "0.0.0.0",
-          port: 1421,
-        },
+        protocol: "ws",
+        host: "0.0.0.0",
+        port: 1421,
+      },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri` and `backend` (venv has too many files)
       ignored: ["**/src-tauri/**", "**/backend/**", "**/node_modules/**"],

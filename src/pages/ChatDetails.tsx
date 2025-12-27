@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check, Paperclip } from "lucide-react"
+import { Send, Loader2, AlertCircle, RefreshCw, Youtube, X, ExternalLink, Square, Brain, Zap, Hash, Clock, Copy, Check } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -29,7 +29,7 @@ import {
   type AttachedDocument,
   formatFileSize,
 } from "@/components/chat/DocumentAttachment"
-import { DocumentViewer } from "@/components/chat/DocumentViewer"
+import { DocumentViewer, getFileIcon } from "@/components/chat/DocumentViewer"
 import { documentService } from "@/services/document-service"
 import type { ToolCall } from "@/types/toolCall"
 
@@ -142,6 +142,7 @@ export default function ChatDetail() {
   const hasProcessedInitialMessage = useRef(false)
   const chatDataLoaded = useRef(false)
   const isSubmittingRef = useRef(false) // Guard against double submission
+  const chatCreationPromiseRef = useRef<Promise<string> | null>(null) // Lock to prevent duplicate chat creation
 
   // Image attachment handlers
   const handleAddImage = useCallback((image: AttachedImage) => {
@@ -170,33 +171,57 @@ export default function ChatDetail() {
 
   const handleRemoveDocument = useCallback(async (id: string) => {
     const doc = attachedDocuments.find(d => d.id === id)
-    // If the document was already uploaded, delete it from the server
+    // If the document was already uploaded, check if it's used in any message before deleting
     if (doc?.document?.id) {
-      try {
-        await documentService.deleteDocument(doc.document.id)
-      } catch (error) {
-        console.error('Failed to delete document from server:', error)
+      // Check if this document is referenced in any message
+      const documentUsedInMessage = messages.some(msg =>
+        msg.artifactData?.documents?.some((d: { id: string }) => d.id === doc.document!.id)
+      )
+
+      // Only delete from server if the document is NOT used in any message
+      // This prevents accidental deletion of documents that were already sent
+      if (!documentUsedInMessage) {
+        try {
+          await documentService.deleteDocument(doc.document.id)
+        } catch (error) {
+          console.error('Failed to delete document from server:', error)
+        }
       }
     }
     setAttachedDocuments(prev => prev.filter(d => d.id !== id))
-  }, [attachedDocuments])
+  }, [attachedDocuments, messages])
 
   // Ensure a chat exists for document upload (creates one if needed)
-  // This is a fallback - normally the draft chat is created when entering new chat screen
+  // Uses a promise lock to prevent race conditions when multiple operations try to create a chat
   const ensureChatIdForDocument = useCallback(async (): Promise<string> => {
+    // If we already have a chat ID, return it
     if (conversationIdRef.current) {
       return conversationIdRef.current
     }
 
-    // Create a new chat (fallback if draft wasn't created)
-    const newChat = await chatService.createChat({
-      title: 'New Chat'
-    })
-    conversationIdRef.current = newChat.id
-    setCurrentChat(newChat)
-    // Don't notify sidebar yet - wait for first message
+    // If a chat creation is already in progress, wait for it
+    if (chatCreationPromiseRef.current) {
+      return chatCreationPromiseRef.current
+    }
 
-    return newChat.id
+    // Create the chat with a promise lock to prevent duplicates
+    const createChatPromise = (async () => {
+      try {
+        const newChat = await chatService.createChat({
+          title: 'New Chat'
+        })
+        conversationIdRef.current = newChat.id
+        setCurrentChat(newChat)
+        // Don't notify sidebar yet - wait for first message
+        return newChat.id
+      } finally {
+        // Clear the lock after creation completes (success or failure)
+        chatCreationPromiseRef.current = null
+      }
+    })()
+
+    chatCreationPromiseRef.current = createChatPromise
+    return createChatPromise
   }, [])
 
   // Handle paste events for images
@@ -252,6 +277,10 @@ export default function ChatDetail() {
     // If we're just navigating to the ID of the chat we just created, don't reset!
     if (chatId && conversationIdRef.current === chatId && messages.length > 0) {
       chatDataLoaded.current = true
+      // Still clear attachments - they've already been sent with the message
+      // Without this, documents stay in input field after sending, and clicking X deletes them from DB
+      setAttachedImages([])
+      setAttachedDocuments([])
       return
     }
 
@@ -275,22 +304,37 @@ export default function ChatDetail() {
 
     // If it's a new chat (no ID), create a draft chat immediately
     // This allows document uploads before the first message is sent
+    // Uses the same lock mechanism as ensureChatIdForDocument to prevent duplicates
     if (!chatId) {
       chatDataLoaded.current = true
+      chatCreationPromiseRef.current = null // Reset the lock on new chat
 
-      // Create a draft chat for document uploads
+      // Create a draft chat for document uploads using the lock
       const createDraftChat = async () => {
-        try {
-          const newChat = await chatService.createChat({
-            title: 'New Chat'
-          })
-          conversationIdRef.current = newChat.id
-          setCurrentChat(newChat)
-          // Don't update the title in the header - keep it as "New Chat"
-          // Don't notify sidebar yet - wait for first message
-        } catch (error) {
-          console.error('Failed to create draft chat:', error)
-        }
+        // If already created or in progress, skip
+        if (conversationIdRef.current) return
+        if (chatCreationPromiseRef.current) return
+
+        const createChatPromise = (async () => {
+          try {
+            const newChat = await chatService.createChat({
+              title: 'New Chat'
+            })
+            conversationIdRef.current = newChat.id
+            setCurrentChat(newChat)
+            // Don't update the title in the header - keep it as "New Chat"
+            // Don't notify sidebar yet - wait for first message
+            return newChat.id
+          } catch (error) {
+            console.error('Failed to create draft chat:', error)
+            throw error
+          } finally {
+            chatCreationPromiseRef.current = null
+          }
+        })()
+
+        chatCreationPromiseRef.current = createChatPromise
+        await createChatPromise
       }
       createDraftChat()
     }
@@ -427,6 +471,12 @@ export default function ChatDetail() {
     const imagesToSend = [...imagesToUse]
     const documentsToSend = [...documentsToUse]
 
+    // IMPORTANT: Clear attachments IMMEDIATELY at the start to prevent them from staying in UI
+    // This must happen before any async operations to ensure React processes this state update
+    // before any other state changes happen
+    setAttachedImages([])
+    setAttachedDocuments([])
+
     // Use a default message if only images/docs are attached
     const messageContent = messageToSend.trim() ||
       (imagesToSend.length > 0 ? "What's in this image?" :
@@ -465,8 +515,7 @@ export default function ChatDetail() {
 
     setMessages(prev => [...prev, userMessage])
     setMessage("")
-    setAttachedImages([]) // Clear images after capturing
-    setAttachedDocuments([]) // Clear documents after capturing
+    // Note: Attachments already cleared at the start of sendMessage()
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -477,16 +526,38 @@ export default function ChatDetail() {
     const isFirstMessage = messages.length === 0
 
     // Create a new chat if we don't have one (fallback, normally draft is created)
+    // Uses the same lock mechanism to prevent race conditions
     if (!conversationIdRef.current) {
-      try {
-        const newChat = await chatService.createChat({
-          title: messageToSend.trim().substring(0, 50)
-        })
-        conversationIdRef.current = newChat.id
-        setCurrentChat(newChat)
-        setTitle(newChat.title)
-      } catch (error) {
-        console.error('Failed to create chat:', error)
+      // If a chat creation is in progress, wait for it
+      if (chatCreationPromiseRef.current) {
+        try {
+          await chatCreationPromiseRef.current
+        } catch {
+          // If pending creation failed, we'll create a new one below
+        }
+      }
+
+      // Still no chat ID? Create one now
+      if (!conversationIdRef.current) {
+        const createChatPromise = (async () => {
+          try {
+            const newChat = await chatService.createChat({
+              title: messageToSend.trim().substring(0, 50)
+            })
+            conversationIdRef.current = newChat.id
+            setCurrentChat(newChat)
+            setTitle(newChat.title)
+            return newChat.id
+          } catch (error) {
+            console.error('Failed to create chat:', error)
+            throw error
+          } finally {
+            chatCreationPromiseRef.current = null
+          }
+        })()
+
+        chatCreationPromiseRef.current = createChatPromise
+        await createChatPromise
       }
     }
 
@@ -1112,33 +1183,36 @@ export default function ChatDetail() {
                   </div>
                 )}
 
-                {/* PDF artifact indicator */}
+                {/* Document artifact indicator with file-type specific icons */}
                 {msg.artifactType === 'pdf' && msg.artifactData?.documents && msg.artifactData.documents.length > 0 && (
                   <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2 flex-wrap gap-2`}>
-                    {msg.artifactData.documents.map((doc) => (
-                      <Button
-                        key={doc.id}
-                        variant="outline"
-                        size="sm"
-                        className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                        onClick={() => {
-                          handleCloseVideo() // Close video if open
-                          handleOpenDocument(doc.id)
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Paperclip className="h-4 w-4 text-blue-500" />
-                          <div className="min-w-0">
-                            <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
-                              {doc.name}
-                            </span>
-                            <div className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatFileSize(doc.size)}
+                    {msg.artifactData.documents.map((doc) => {
+                      const { Icon: FileIcon, color: iconColor } = getFileIcon(doc.name)
+                      return (
+                        <Button
+                          key={doc.id}
+                          variant="outline"
+                          size="sm"
+                          className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                          onClick={() => {
+                            handleCloseVideo() // Close video if open
+                            handleOpenDocument(doc.id)
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <FileIcon className={`h-4 w-4 ${iconColor}`} />
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
+                                {doc.name}
+                              </span>
+                              <div className="text-xs text-muted-foreground whitespace-nowrap">
+                                {formatFileSize(doc.size)}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </Button>
-                    ))}
+                        </Button>
+                      )
+                    })}
                   </div>
                 )}
 
@@ -1442,15 +1516,7 @@ export default function ChatDetail() {
               <SheetDescription>View document content</SheetDescription>
             </SheetHeader>
             {currentDocumentId && (
-              <div className="h-full flex flex-col relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 z-10 h-8 w-8 bg-background/50 hover:bg-background"
-                  onClick={handleCloseDocument}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+              <div className="h-full flex flex-col">
                 <DocumentViewer
                   documentId={currentDocumentId}
                   onClose={handleCloseDocument}
@@ -1479,15 +1545,7 @@ export default function ChatDetail() {
               <ResizablePanel defaultSize={50} minSize={30}>
                 {hasVideoArtifact ? VideoPanel : (
                   currentDocumentId && (
-                    <div className="h-full relative border-l border-border">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-2 right-2 z-10 h-8 w-8 bg-background/50 hover:bg-background"
-                        onClick={handleCloseDocument}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                    <div className="h-full border-l border-border">
                       <DocumentViewer
                         documentId={currentDocumentId}
                         onClose={handleCloseDocument}

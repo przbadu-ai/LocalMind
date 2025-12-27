@@ -60,6 +60,20 @@ Local Mind is a desktop application that lets you:
 - **[uv](https://docs.astral.sh/uv/)** - Fast Python package manager
 - **LLM Server** - [Ollama](https://ollama.ai/), LlamaCpp, or any OpenAI-compatible endpoint
 
+#### Linux System Dependencies
+
+On Fedora/RHEL-based systems:
+```bash
+sudo dnf install python3-devel gcc
+```
+
+On Debian/Ubuntu-based systems:
+```bash
+sudo apt install python3-dev build-essential
+```
+
+These are required to build Python packages like NumPy that compile native extensions.
+
 ### Quick Start
 
 ```bash
