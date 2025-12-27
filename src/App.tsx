@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -15,7 +15,7 @@ const App = () => (
     <ThemeProvider defaultTheme="dark" storageKey="app-theme">
       <TooltipProvider>
         <Toaster />
-        <HashRouter>
+        <BrowserRouter>
           <SidebarProvider>
             <div className="h-screen flex w-full">
               <AppSidebar />
@@ -27,7 +27,7 @@ const App = () => (
               </div>
             </div>
           </SidebarProvider>
-        </HashRouter>
+        </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>

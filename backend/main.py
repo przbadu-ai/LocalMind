@@ -107,7 +107,7 @@ async def get_version():
 
 
 # Import and include routers
-from api import chat, chats, documents, mcp, settings as settings_router, youtube
+from api import chat, chats, documents, mcp, settings as settings_router, youtube, tools
 
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(chats.router, prefix="/api/v1", tags=["Chats"])
@@ -115,6 +115,7 @@ app.include_router(documents.router, prefix="/api/v1", tags=["Documents"])
 app.include_router(youtube.router, prefix="/api/v1", tags=["YouTube"])
 app.include_router(mcp.router, prefix="/api/v1", tags=["MCP"])
 app.include_router(settings_router.router, prefix="/api/v1", tags=["Settings"])
+app.include_router(tools.router, prefix="/api/v1", tags=["Tools"])
 
 
 def main():

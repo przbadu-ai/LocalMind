@@ -28,10 +28,19 @@ export interface ToolCallData {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
-  status: 'executing' | 'completed' | 'error';
+  status: 'executing' | 'completed' | 'error' | 'requires_action';
   result?: unknown;
   error?: string;
 }
+
+export interface ApproveToolCallRequest {
+  conversation_id: string;
+  tool_call_id: string;
+  approved: boolean;
+  tool_name: string;
+  tool_args: any;
+}
+
 
 export interface Message {
   id: string;
@@ -299,6 +308,25 @@ class ChatService {
   }
 
   /**
+   * Approve or deny a tool call.
+   */
+  async approveToolCall(data: ApproveToolCallRequest): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/chat/tool/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to process approval: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
    * Stream a chat response.
    * This uses Server-Sent Events to stream the response.
    */
@@ -306,6 +334,7 @@ class ChatService {
     temperature?: number;
     max_results?: number;
     include_citations?: boolean;
+    resume_from_tool_call?: any;
   }): AsyncGenerator<any, void, unknown> {
     const response = await fetch(`${this.baseUrl}/chat/stream`, {
       method: 'POST',
@@ -318,8 +347,10 @@ class ChatService {
         temperature: options?.temperature || 0.7,
         max_results: options?.max_results || 5,
         include_citations: options?.include_citations ?? true,
+        resume_from_tool_call: options?.resume_from_tool_call,
       }),
     });
+
 
     if (!response.ok) {
       throw new Error(`Failed to stream chat: ${response.statusText}`);
