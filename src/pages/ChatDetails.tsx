@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { useParams, useLocation } from "react-router-dom"
+import { useParams, useLocation, useNavigate } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -73,6 +73,7 @@ interface TranscriptData {
 export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const { setTitle, clearTitle } = useHeaderStore()
 
   // Chat state
@@ -132,6 +133,11 @@ export default function ChatDetail() {
 
   // Use effective layout mode
   const showStackedView = isMobile || isCompact
+
+  // Check if any document is still uploading or processing
+  const isDocumentProcessing = attachedDocuments.some(
+    doc => doc.status === 'pending' || doc.status === 'uploading' || doc.status === 'processing'
+  )
 
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -574,6 +580,7 @@ export default function ChatDetail() {
     if (!message) return
 
     if (action === 'deny') {
+      // Optimistically update UI
       setMessages(prev => prev.map(msg =>
         msg.id === message.id
           ? {
@@ -586,6 +593,20 @@ export default function ChatDetail() {
           }
           : msg
       ))
+
+      // Persist denial to backend
+      try {
+        await chatService.approveToolCall({
+          conversation_id: conversationIdRef.current,
+          tool_call_id: toolCallId,
+          approved: false,
+          tool_name: toolName,
+          tool_args: toolArgs
+        })
+      } catch (error) {
+        console.error("Failed to persist tool denial:", error)
+        // UI already shows denied - persistence failure is non-critical
+      }
       return
     }
 
@@ -1197,8 +1218,12 @@ export default function ChatDetail() {
       }
       // Pass both directly to sendMessage to avoid async state issues
       sendMessage(initialMessage, initialImages, initialDocuments)
+
+      // Clear location state to prevent re-submission on browser refresh
+      // Using replace: true so it doesn't add a new history entry
+      navigate(location.pathname, { replace: true, state: {} })
     }
-  }, [location.state, chatId, sendMessage])
+  }, [location.state, chatId, sendMessage, navigate, location.pathname])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -1565,7 +1590,7 @@ export default function ChatDetail() {
               <Button
                 onClick={handleSendMessage}
                 size="icon"
-                disabled={isLoading || (!message.trim() && attachedImages.length === 0)}
+                disabled={isLoading || isDocumentProcessing || (!message.trim() && attachedImages.length === 0 && attachedDocuments.length === 0)}
                 className="rounded-full h-8 w-8"
               >
                 {isLoading ? (
