@@ -25,7 +25,7 @@ image: przbadu/localmind
 servers:
   web:
     hosts:
-      - 192.168.1.173
+      - <%= ENV['DEPLOY_SERVER_IP'] || raise('DEPLOY_SERVER_IP environment variable is required') %>
     options:
       add-host: host.docker.internal:host-gateway
 
@@ -34,7 +34,7 @@ servers:
 proxy:
   ssl: false
   hosts:
-    - <%= ENV['DEPLOY_SERVER_IP'] || '192.168.1.173' %>
+    - <%= ENV['DEPLOY_SERVER_IP'] || raise('DEPLOY_SERVER_IP environment variable is required') %>
 <% if ENV['DEPLOY_DOMAIN'] && !ENV['DEPLOY_DOMAIN'].empty? %>
     - <%= ENV['DEPLOY_DOMAIN'] %>
 <% end %>

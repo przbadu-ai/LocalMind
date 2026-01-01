@@ -17,12 +17,12 @@ cd "$(dirname "$0")/.."
 # Parse arguments
 USE_CACHE=false
 for arg in "$@"; do
-    case $arg in
-        --cached)
-            USE_CACHE=true
-            shift
-            ;;
-    esac
+  case $arg in
+  --cached)
+    USE_CACHE=true
+    shift
+    ;;
+  esac
 done
 
 # Export for pre-deploy hook to use
@@ -34,11 +34,11 @@ echo "╚═══════════════════════�
 echo ""
 
 if [ "$USE_CACHE" = true ]; then
-    echo "Mode: CACHED (faster, uses Docker cache)"
-    echo "      Use this for frontend-only changes"
+  echo "Mode: CACHED (faster, uses Docker cache)"
+  echo "      Use this for frontend-only changes"
 else
-    echo "Mode: FRESH (--no-cache, reliable)"
-    echo "      Use --cached flag for faster builds"
+  echo "Mode: FRESH (--no-cache, reliable)"
+  echo "      Use --cached flag for faster builds"
 fi
 
 echo ""
@@ -52,7 +52,18 @@ echo ""
 
 kamal deploy
 
-echo ""
-echo "✓ Deployment complete!"
-echo "  Frontend: http://192.168.1.173"
-echo "  Backend:  http://192.168.1.173:8001"
+# Get server IP from .env file
+if [ -f ".env" ]; then
+  DEPLOY_SERVER_IP=$(grep -E "^DEPLOY_SERVER_IP=" ".env" | cut -d'=' -f2)
+fi
+
+if [ -z "$DEPLOY_SERVER_IP" ]; then
+  echo ""
+  echo "✓ Deployment complete!"
+  echo "  Check your server at the IP configured in .env"
+else
+  echo ""
+  echo "✓ Deployment complete!"
+  echo "  Frontend: http://$DEPLOY_SERVER_IP"
+  echo "  Backend:  http://$DEPLOY_SERVER_IP:8001"
+fi

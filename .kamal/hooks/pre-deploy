@@ -43,14 +43,28 @@ docker build \
 echo "==> Pushing backend image to registry..."
 docker push "$BACKEND_IMAGE"
 
+# Get server IP from environment or .env file
+if [ -z "$DEPLOY_SERVER_IP" ]; then
+  if [ -f "$PROJECT_ROOT/.env" ]; then
+    DEPLOY_SERVER_IP=$(grep -E "^DEPLOY_SERVER_IP=" "$PROJECT_ROOT/.env" | cut -d'=' -f2)
+  fi
+fi
+if [ -z "$DEPLOY_SERVER_IP" ]; then
+  echo "ERROR: DEPLOY_SERVER_IP is not set. Please set it in your .env file or environment."
+  exit 1
+fi
+
 # Pull new image on server and restart container
-echo "==> Deploying backend to server..."
-ssh root@192.168.1.173 "
+echo "==> Deploying backend to server $DEPLOY_SERVER_IP..."
+ssh root@$DEPLOY_SERVER_IP "
   docker pull $BACKEND_IMAGE
 
   # Stop and remove existing container if it exists
   docker stop localmind-backend 2>/dev/null || true
   docker rm localmind-backend 2>/dev/null || true
+
+  # Create kamal network if it doesn't exist (first-time setup)
+  docker network create kamal 2>/dev/null || true
 
   # Start new container on Kamal's network so frontend can reach it by hostname
   # Mount Docker socket for Docker-based MCP servers
@@ -72,7 +86,7 @@ ssh root@192.168.1.173 "
 # Wait for backend to be healthy
 echo "==> Waiting for backend health check..."
 for i in {1..12}; do
-    if ssh root@192.168.1.173 "curl -sf http://localhost:8001/health" > /dev/null 2>&1; then
+    if ssh root@$DEPLOY_SERVER_IP "curl -sf http://localhost:8001/health" > /dev/null 2>&1; then
         echo "==> Backend is healthy!"
         exit 0
     fi
