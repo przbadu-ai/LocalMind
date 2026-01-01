@@ -108,7 +108,18 @@ class ConfigLoader {
   }
 
   get apiBaseUrl(): string {
-    return this.config.backend.api_base_url;
+    // Priority: environment variable > everything else
+    if (import.meta.env.VITE_API_BASE_URL) {
+      return import.meta.env.VITE_API_BASE_URL;
+    }
+    // In development mode, Vite proxies /api to backend, so use relative URL
+    // In production, nginx also proxies /api to backend
+    // Only use absolute URL for Tauri desktop app (tauri://localhost)
+    if (typeof window !== 'undefined' && window.location.protocol === 'tauri:') {
+      return this.config.backend.api_base_url;
+    }
+    // For web (both dev and prod), use relative URL - let server proxy handle it
+    return '';
   }
 
   get backendPort(): number {

@@ -48,7 +48,7 @@ BACKEND_PID=$!
 
 # Wait for backend to start
 echo "⏳ Waiting for backend to be ready..."
-while ! curl -s http://localhost:52817/api/v1/health > /dev/null; do
+while ! curl -s http://localhost:52817/health > /dev/null; do
     sleep 1
 done
 echo "✅ Backend is running!"

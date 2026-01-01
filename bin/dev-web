@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Start frontend (Vite) and backend for web development
+# Use this when you don't need the Tauri desktop app
+
+echo "🚀 Starting Local Mind Web Development..."
+
+# Kill any existing processes on our ports first
+echo "🧹 Cleaning up existing processes..."
+
+# Kill backend processes on port 52817
+BACKEND_PIDS=$(lsof -ti:52817 2>/dev/null)
+if [ -n "$BACKEND_PIDS" ]; then
+    echo "   Killing existing backend processes on port 52817..."
+    echo "$BACKEND_PIDS" | xargs kill -9 2>/dev/null
+    sleep 1
+fi
+
+# Kill frontend processes on port 1420 (Vite dev server)
+FRONTEND_PIDS=$(lsof -ti:1420 2>/dev/null)
+if [ -n "$FRONTEND_PIDS" ]; then
+    echo "   Killing existing frontend processes on port 1420..."
+    echo "$FRONTEND_PIDS" | xargs kill -9 2>/dev/null
+    sleep 1
+fi
+
+pkill -f "uvicorn.*main:app" 2>/dev/null
+
+echo "✅ Cleanup complete!"
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT"
+
+# Function to kill background processes on exit
+cleanup() {
+    echo ""
+    echo "🛑 Shutting down services..."
+    kill $BACKEND_PID 2>/dev/null
+    kill $FRONTEND_PID 2>/dev/null
+    lsof -ti:52817 2>/dev/null | xargs kill -9 2>/dev/null
+    lsof -ti:1420 2>/dev/null | xargs kill -9 2>/dev/null
+    exit
+}
+
+trap cleanup EXIT INT TERM
+
+# Start backend in background
+echo "🐍 Starting Python backend..."
+./bin/start_backend.sh &
+BACKEND_PID=$!
+
+# Wait for backend to start
+echo "⏳ Waiting for backend to be ready..."
+for i in {1..30}; do
+    if curl -s http://localhost:52817/health > /dev/null 2>&1; then
+        echo "✅ Backend is running on http://localhost:52817"
+        break
+    fi
+    sleep 1
+done
+
+# Start Vite dev server
+echo "⚡ Starting Vite frontend..."
+bun run dev &
+FRONTEND_PID=$!
+
+echo ""
+echo "════════════════════════════════════════"
+echo "  Local Mind Development Server"
+echo "════════════════════════════════════════"
+echo "  Frontend: http://localhost:1420"
+echo "  Backend:  http://localhost:52817"
+echo "  API Docs: http://localhost:52817/docs"
+echo "════════════════════════════════════════"
+echo "  Press Ctrl+C to stop"
+echo ""
+
+# Wait for either process to exit
+wait

@@ -36,12 +36,25 @@ export default defineConfig(async () => ({
       }
       : {
         protocol: "ws",
-        host: "0.0.0.0",
+        // Use client's hostname for HMR instead of 0.0.0.0
+        host: "localhost",
         port: 1421,
+        clientPort: 1421,
       },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri` and `backend` (venv has too many files)
       ignored: ["**/src-tauri/**", "**/backend/**", "**/node_modules/**"],
+    },
+    // Proxy API requests to backend during development
+    proxy: {
+      "/api": {
+        target: "http://localhost:52817",
+        changeOrigin: true,
+      },
+      "/health": {
+        target: "http://localhost:52817",
+        changeOrigin: true,
+      },
     },
   },
 }));

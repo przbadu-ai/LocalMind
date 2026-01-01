@@ -1,0 +1,44 @@
+[project]
+name = "localmind-backend"
+version = "0.1.0"
+description = "LocalMind backend - AI chat with RAG and MCP support"
+requires-python = ">=3.11"
+dependencies = [
+    # FastAPI and server
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "sse-starlette>=1.6.0",
+
+    # Pydantic and settings
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.0.0",
+
+    # Pydantic AI for agents
+    "pydantic-ai>=0.0.30",
+
+    # OpenAI-compatible API client
+    "openai>=1.55.0",
+
+    # Native Ollama client (for thinking/reasoning support)
+    "ollama>=0.4.0",
+
+    # YouTube transcript extraction
+    "youtube-transcript-api>=0.6.0",
+
+    # MCP protocol
+    "mcp>=1.0.0",
+
+    # Environment variables
+    "python-dotenv>=1.0.0",
+
+    # Document processing
+    "docling>=2.0.0",
+
+    # Web Scraping
+    "trafilatura>=1.6.0",
+    "beautifulsoup4>=4.12.0",
+    "requests>=2.31.0",
+]
+
+[tool.uv]
+dev-dependencies = []
