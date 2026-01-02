@@ -81,11 +81,6 @@ builder:
     AUTH_ALLOW_SIGNUP: <%= ENV['AUTH_ALLOW_SIGNUP'] || 'false' %>
 
 # Logging configuration
-logging:
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
 
 # Number of old containers to keep for rollback
 retain_containers: 3
