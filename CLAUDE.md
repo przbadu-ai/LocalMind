@@ -189,6 +189,14 @@ The pre-deploy hook (`.kamal/hooks/pre-deploy`) automatically:
 4. Waits for health check
 5. Then Kamal deploys the frontend
 
+**Base Image (for fast builds):**
+The backend uses a pre-built base image (`ghcr.io/przbadu/localmind-base:latest`) with heavy dependencies (docling, PyTorch) pre-installed. This reduces build times from ~40 minutes to ~30 seconds.
+
+```bash
+# Rebuild base image (only when docling/Python version changes):
+./scripts/build-base-image.sh
+```
+
 **Other Kamal commands:**
 ```bash
 kamal setup      # Initial deployment (first time only)

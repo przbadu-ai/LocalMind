@@ -476,21 +476,27 @@ You have access to the following tools. Use them when you need real-time or accu
                 if chunk.type == "thinking" and chunk.thinking:
                     # Handle thinking/reasoning content from models like deepseek-r1, qwen3
                     full_thinking += chunk.thinking
+                    payload = {
+                        "type": "thinking",
+                        "content": chunk.thinking,
+                    }
+                    if chunk.metrics:
+                        payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
                     yield {
                         "event": "message",
-                        "data": json.dumps({
-                            "type": "thinking",
-                            "content": chunk.thinking,
-                        }),
+                        "data": json.dumps(payload),
                     }
                 elif chunk.type == "content" and chunk.content:
                     full_response += chunk.content
+                    payload = {
+                        "type": "content",
+                        "content": chunk.content,
+                    }
+                    if chunk.metrics:
+                        payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
                     yield {
                         "event": "message",
-                        "data": json.dumps({
-                            "type": "content",
-                            "content": chunk.content,
-                        }),
+                        "data": json.dumps(payload),
                     }
                 elif chunk.type == "tool_call" and chunk.tool_call:
                     pending_tool_calls.append(chunk.tool_call)
@@ -700,21 +706,27 @@ You have access to the following tools. Use them when you need real-time or accu
                     if chunk.type == "thinking" and chunk.thinking:
                         # Handle thinking/reasoning content
                         full_thinking += chunk.thinking
+                        payload = {
+                            "type": "thinking",
+                            "content": chunk.thinking,
+                        }
+                        if chunk.metrics:
+                            payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "type": "thinking",
-                                "content": chunk.thinking,
-                            }),
+                            "data": json.dumps(payload),
                         }
                     elif chunk.type == "content" and chunk.content:
                         full_response += chunk.content
+                        payload = {
+                            "type": "content",
+                            "content": chunk.content,
+                        }
+                        if chunk.metrics:
+                            payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "type": "content",
-                                "content": chunk.content,
-                            }),
+                            "data": json.dumps(payload),
                         }
                     elif chunk.type == "done":
                         # Capture generation metrics from the done chunk

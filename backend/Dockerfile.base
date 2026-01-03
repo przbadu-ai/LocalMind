@@ -1,0 +1,39 @@
+# Base image for LocalMind backend
+# Contains heavy dependencies (docling, PyTorch, etc.) pre-installed
+# This image should be rebuilt only when docling version or Python version changes
+#
+# Build and push:
+#   ./scripts/build-base-image.sh
+#
+# Or manually:
+#   docker build -f backend/Dockerfile.base -t ghcr.io/przbadu/localmind-base:latest backend/
+#   docker push ghcr.io/przbadu/localmind-base:latest
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies including Docker CLI for Docker-based MCP servers
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gnupg \
+    ca-certificates \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install heavy dependencies that rarely change
+# These take ~40 minutes to install, so we pre-bake them into the base image
+RUN pip install --no-cache-dir \
+    docling>=2.0.0 \
+    pydantic-ai>=0.0.30 \
+    openai>=1.55.0
+
+# Create app directory
+WORKDIR /app

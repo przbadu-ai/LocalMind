@@ -1,9 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, memo, createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ChevronDown, ChevronRight, Brain, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, Brain, Copy, Check, Eye } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+const PreviewContext = createContext<(code: string) => void>(() => { });
 
 interface MarkdownRendererProps {
   content: string;
@@ -15,7 +18,7 @@ interface ReasoningBlockProps {
   defaultOpen?: boolean;
 }
 
-function ReasoningBlock({ content, defaultOpen = false }: ReasoningBlockProps) {
+const ReasoningBlock = memo(({ content, defaultOpen = false }: ReasoningBlockProps) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -49,7 +52,7 @@ function ReasoningBlock({ content, defaultOpen = false }: ReasoningBlockProps) {
       )}
     </div>
   );
-}
+});
 
 // CodeBlock component with syntax highlighting, line numbers, and copy button
 interface CodeBlockProps {
@@ -58,8 +61,9 @@ interface CodeBlockProps {
   inline?: boolean;
 }
 
-function CodeBlock({ children, className, inline }: CodeBlockProps) {
+const CodeBlock = memo(({ children, className, inline }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
+  const setPreviewCode = useContext(PreviewContext);
   const [isDark, setIsDark] = useState(() =>
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
   );
@@ -95,6 +99,8 @@ function CodeBlock({ children, className, inline }: CodeBlockProps) {
     setTimeout(() => setCopied(false), 3000);
   };
 
+  const isHtml = language.toLowerCase() === 'html' || language.toLowerCase() === 'xml';
+
   return (
     <div className="code-block group my-4 rounded-lg overflow-hidden border border-border">
       {/* Header with language badge and copy button */}
@@ -102,22 +108,34 @@ function CodeBlock({ children, className, inline }: CodeBlockProps) {
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           {language}
         </span>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3.5 w-3.5 text-green-500" />
-              <span className="text-green-500">Copied!</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3.5 w-3.5" />
-              <span>Copy</span>
-            </>
+        <div className="flex items-center gap-3">
+          {isHtml && (
+            <button
+              onClick={() => setPreviewCode(codeString)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Preview HTML"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <span>Preview</span>
+            </button>
           )}
-        </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-green-500" />
+                <span className="text-green-500">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Code with syntax highlighting */}
@@ -130,6 +148,9 @@ function CodeBlock({ children, className, inline }: CodeBlockProps) {
           borderRadius: 0,
           fontSize: '0.75rem',
           lineHeight: '1.5',
+          overflowX: 'auto',
+          maxHeight: '800px',
+          overflowY: 'auto',
         }}
         lineNumberStyle={{
           minWidth: '2.5em',
@@ -144,7 +165,7 @@ function CodeBlock({ children, className, inline }: CodeBlockProps) {
       </SyntaxHighlighter>
     </div>
   );
-}
+});
 
 // Shared markdown components
 const markdownComponents = {
@@ -357,25 +378,44 @@ function parseContent(content: string): ContentPart[] {
   return [{ type: 'content', text: content }];
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(({ content, className }: MarkdownRendererProps) => {
   const parts = useMemo(() => parseContent(content), [content]);
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
 
   return (
-    <div className={className}>
-      {parts.map((part, index) => {
-        if (part.type === 'reasoning') {
-          return <ReasoningBlock key={index} content={part.text} />;
-        }
-        return (
-          <ReactMarkdown
-            key={index}
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
-          >
-            {part.text}
-          </ReactMarkdown>
-        );
-      })}
-    </div>
+    <PreviewContext.Provider value={setPreviewCode}>
+      <div className={className}>
+        {parts.map((part, index) => {
+          if (part.type === 'reasoning') {
+            return <ReasoningBlock key={index} content={part.text} />;
+          }
+          return (
+            <ReactMarkdown
+              key={index}
+              remarkPlugins={[remarkGfm]}
+              components={markdownComponents}
+            >
+              {part.text}
+            </ReactMarkdown>
+          );
+        })}
+      </div>
+
+      <Dialog open={!!previewCode} onOpenChange={(open) => !open && setPreviewCode(null)}>
+        <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="p-4 border-b">
+            <DialogTitle>HTML Preview</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 w-full h-full bg-white relative rounded-b-lg overflow-hidden">
+            <iframe
+              srcDoc={previewCode || ''}
+              className="w-full h-full border-0 block"
+              title="HTML Preview"
+              sandbox="allow-scripts allow-popups allow-modals"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </PreviewContext.Provider>
   );
-}
+});

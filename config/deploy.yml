@@ -71,6 +71,8 @@ volumes:
 # Build configuration
 builder:
   arch: amd64
+  # Use local Docker daemon instead of remote builder (preserves cache)
+  local: true
   # Uncomment for multi-arch builds:
   # multiarch: true
   args:

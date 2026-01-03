@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, memo } from "react"
 import { useParams, useLocation, useNavigate } from "react-router-dom"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
@@ -69,6 +69,219 @@ interface TranscriptData {
   segments: TranscriptSegment[]
   full_text: string
 }
+
+interface MessageItemProps {
+  msg: ChatMessage;
+  handleToolAction: (toolCallId: string, action: 'approve' | 'deny', toolName: string, toolArgs: any) => Promise<void>;
+  isLoading: boolean;
+  loadingMessage: string;
+  setPreviewImage: (image: { src: string; alt?: string } | null) => void;
+  onRetry: (messageContent: string) => void;
+  errorRetryCount: number;
+  copiedMessageId: string | null;
+  setCopiedMessageId: (id: string | null) => void;
+  handleCloseVideo: () => void;
+  handleCloseDocument: () => void;
+  handleOpenDocument: (documentId: string) => void;
+  fetchTranscript: (videoId: string) => Promise<void>;
+  showStackedView: boolean;
+  setIsVideoSheetOpen: (open: boolean) => void;
+}
+
+const MessageItem = memo(({
+  msg,
+  handleToolAction,
+  isLoading,
+  loadingMessage,
+  setPreviewImage,
+  onRetry,
+  errorRetryCount,
+  copiedMessageId,
+  setCopiedMessageId,
+  handleCloseVideo,
+  handleCloseDocument,
+  handleOpenDocument,
+  fetchTranscript,
+  showStackedView,
+  setIsVideoSheetOpen
+}: MessageItemProps) => {
+  return (
+    <div className="space-y-3">
+      {/* Tool calls appear ABOVE assistant message content */}
+      {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
+        <ToolCallAccordion toolCalls={msg.toolCalls} onAction={handleToolAction} />
+      )}
+
+      <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
+          ? 'bg-muted text-muted-foreground'
+          : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
+            ? 'bg-destructive/10 border border-destructive/20 text-destructive'
+            : ''
+          }`}>
+          {msg.type === 'assistant' && msg.content === '' && isLoading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span className="text-sm">{loadingMessage || "Thinking..."}</span>
+            </div>
+          ) : (
+            <>
+              {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && (
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="font-medium text-sm">Connection Error</span>
+                </div>
+              )}
+              {msg.type === 'assistant' ? (
+                <MarkdownRenderer content={msg.content} />
+              ) : (
+                <>
+                  {/* Show attached images in user message */}
+                  {msg.artifactType === 'image' && msg.artifactData?.images && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {msg.artifactData.images.map((img, idx) => (
+                        <img
+                          key={idx}
+                          src={img.preview || `data:${img.mimeType};base64,${img.data}`}
+                          alt={`Attached image ${idx + 1}`}
+                          className="max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity active:scale-[0.98]"
+                          onClick={() => setPreviewImage({
+                            src: img.preview || `data:${img.mimeType};base64,${img.data}`,
+                            alt: `Attached image ${idx + 1}`
+                          })}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                </>
+              )}
+              {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 h-7 text-xs"
+                  onClick={() => onRetry(msg.content)}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
+              )}
+            </>
+          )}
+          <div className="flex items-center flex-wrap gap-2 mt-2">
+            <span className="text-xs opacity-70">{msg.timestamp}</span>
+            {msg.type === 'assistant' && msg.metrics && (
+              <div className="flex items-center flex-wrap gap-1.5">
+                {msg.metrics.tokens_per_second && (
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                    <Zap className="h-3 w-3" />
+                    {msg.metrics.tokens_per_second.toFixed(1)} tok/s
+                  </Badge>
+                )}
+                {msg.metrics.completion_tokens && (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                    <Hash className="h-3 w-3" />
+                    {msg.metrics.completion_tokens} tokens
+                  </Badge>
+                )}
+                {msg.metrics.total_duration && (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
+                    <Clock className="h-3 w-3" />
+                    {msg.metrics.total_duration.toFixed(1)}s
+                  </Badge>
+                )}
+              </div>
+            )}
+            {/* Copy button for assistant messages */}
+            {msg.type === 'assistant' && msg.content && (
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(msg.content)
+                  setCopiedMessageId(msg.id)
+                  setTimeout(() => setCopiedMessageId(null), 3000)
+                }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ml-1"
+                title="Copy response as markdown"
+              >
+                {copiedMessageId === msg.id ? (
+                  <>
+                    <Check className="h-3 w-3 text-green-500" />
+                    <span className="text-green-500">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3 w-3" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* YouTube artifact indicator */}
+      {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
+        <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2`}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+            onClick={() => {
+              handleCloseDocument() // Close document if open
+              fetchTranscript(msg.artifactData!.video_id!)
+              if (showStackedView) setIsVideoSheetOpen(true)
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <Youtube className="h-4 w-4 text-red-500" />
+              <div>
+                <span className="text-sm font-medium">YouTube Video</span>
+                <div className="text-xs text-muted-foreground">
+                  {msg.artifactData.transcript_available ? 'Transcript available' : 'Click to load'}
+                </div>
+              </div>
+            </div>
+          </Button>
+        </div>
+      )}
+
+      {/* Document artifact indicator with file-type specific icons */}
+      {msg.artifactType === 'pdf' && msg.artifactData?.documents && msg.artifactData.documents.length > 0 && (
+        <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2 flex-wrap gap-2`}>
+          {msg.artifactData.documents.map((doc) => {
+            const { Icon: FileIcon, color: iconColor } = getFileIcon(doc.name)
+            return (
+              <Button
+                key={doc.id}
+                variant="outline"
+                size="sm"
+                className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
+                onClick={() => {
+                  handleCloseVideo() // Close video if open
+                  handleOpenDocument(doc.id)
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <FileIcon className={`h-4 w-4 ${iconColor}`} />
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
+                      {doc.name}
+                    </span>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatFileSize(doc.size)}
+                    </div>
+                  </div>
+                </div>
+              </Button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function ChatDetail() {
   const { chatId } = useParams<{ chatId: string }>()
@@ -272,9 +485,9 @@ export default function ChatDetail() {
   }, [message])
 
   // Helper function to scroll to bottom
-  const scrollToBottom = () => {
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     if (scrollAnchorRef.current) {
-      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      scrollAnchorRef.current.scrollIntoView({ behavior, block: 'end' })
     }
   }
 
@@ -533,7 +746,7 @@ export default function ChatDetail() {
               ? { ...msg, content: fullResponse }
               : msg
           ))
-          requestAnimationFrame(scrollToBottom)
+          requestAnimationFrame(() => scrollToBottom('auto'))
         } else if (data.type === 'tool_result') {
           // Handle tool result (e.g. if the *resumed* tool returns result immediately? 
           // The backend might yield 'tool_result' for the resumed tool first)
@@ -821,7 +1034,7 @@ export default function ChatDetail() {
 
     setLoadingMessage("Connecting to AI model...")
     setErrorRetryCount(0)
-    requestAnimationFrame(scrollToBottom)
+    requestAnimationFrame(() => scrollToBottom())
 
     // Create assistant message placeholder with toolCalls initialized
     const assistantMessageId = `msg-${Date.now() + 1}`
@@ -928,13 +1141,13 @@ export default function ChatDetail() {
                         if (existingAssistant) {
                           return prev.map(msg =>
                             msg.id === assistantMessageId
-                              ? { ...msg, content: buildMessageContent() }
+                              ? { ...msg, content: buildMessageContent(), metrics: data.metrics || msg.metrics }
                               : msg
                           )
                         }
                         return prev
                       })
-                      requestAnimationFrame(scrollToBottom)
+                      requestAnimationFrame(() => scrollToBottom('auto'))
                     } else if (data.type === 'content') {
                       if (!hasStartedStreaming) {
                         hasStartedStreaming = true
@@ -952,7 +1165,7 @@ export default function ChatDetail() {
                           // Update existing message, preserving toolCalls
                           return prev.map(msg =>
                             msg.id === assistantMessageId
-                              ? { ...msg, content: buildMessageContent() }
+                              ? { ...msg, content: buildMessageContent(), metrics: data.metrics || msg.metrics }
                               : msg
                           )
                         } else {
@@ -962,10 +1175,10 @@ export default function ChatDetail() {
                           if (!prev.some(m => m.id === userMessage.id)) {
                             messages = [...messages, userMessage]
                           }
-                          return [...messages, { ...assistantMessage, content: buildMessageContent() }]
+                          return [...messages, { ...assistantMessage, content: buildMessageContent(), metrics: data.metrics }]
                         }
                       })
-                      requestAnimationFrame(scrollToBottom)
+                      requestAnimationFrame(() => scrollToBottom('auto'))
                     } else if (data.type === 'youtube_detected') {
                       setCurrentVideoId(data.video_id)
                       setLoadingMessage("Fetching video transcript...")
@@ -1046,7 +1259,7 @@ export default function ChatDetail() {
                           }]
                         }
                       })
-                      requestAnimationFrame(scrollToBottom)
+                      requestAnimationFrame(() => scrollToBottom('auto'))
                     } else if (data.type === 'tool_result') {
                       // Update tool call with result
                       setMessages(prev => {
@@ -1081,7 +1294,7 @@ export default function ChatDetail() {
                       })
                       setIsExecutingTools(false)
                       setLoadingMessage("Generating response...")
-                      requestAnimationFrame(scrollToBottom)
+                      requestAnimationFrame(() => scrollToBottom('auto'))
                     } else if (data.type === 'done') {
                       // Update conversation ID if new
                       if (data.conversation_id) {
@@ -1159,7 +1372,7 @@ export default function ChatDetail() {
                       }))
                       setIsExecutingTools(false)
                       setLoadingMessage("Waiting for approval...")
-                      requestAnimationFrame(scrollToBottom)
+                      requestAnimationFrame(() => scrollToBottom())
                       // Break the loop (pause stream)
                       break
                     } else if (data.type === 'error') {
@@ -1186,7 +1399,7 @@ export default function ChatDetail() {
           setAbortController(null)
           setCurrentStreamId(null)
           requestAnimationFrame(() => {
-            requestAnimationFrame(scrollToBottom)
+            requestAnimationFrame(() => scrollToBottom())
           })
           break
 
@@ -1334,223 +1547,32 @@ export default function ChatDetail() {
       {/* Scrollable Messages */}
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
-          <div className="space-y-6">
+          <div className="space-y-6 max-w-4xl mx-auto">
             {messages.map((msg) => (
-              <div key={msg.id} className="space-y-3">
-                {/* Tool calls appear ABOVE assistant message content */}
-                {msg.type === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <ToolCallAccordion toolCalls={msg.toolCalls} onAction={handleToolAction} />
-                )}
-
-                <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.type === 'user'
-                    ? 'bg-muted text-muted-foreground'
-                    : msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')
-                      ? 'bg-destructive/10 border border-destructive/20 text-destructive'
-                      : ''
-                    }`}>
-                    {msg.type === 'assistant' && msg.content === '' && isLoading ? (
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span className="text-sm">{loadingMessage || "Thinking..."}</span>
-                      </div>
-                    ) : (
-                      <>
-                        {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && (
-                          <div className="flex items-center gap-2 mb-2">
-                            <AlertCircle className="h-4 w-4" />
-                            <span className="font-medium text-sm">Connection Error</span>
-                          </div>
-                        )}
-                        {msg.type === 'assistant' ? (
-                          <MarkdownRenderer content={msg.content} />
-                        ) : (
-                          <>
-                            {/* Show attached images in user message */}
-                            {msg.artifactType === 'image' && msg.artifactData?.images && (
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {msg.artifactData.images.map((img, idx) => (
-                                  <img
-                                    key={idx}
-                                    src={img.preview || `data:${img.mimeType};base64,${img.data}`}
-                                    alt={`Attached image ${idx + 1}`}
-                                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity active:scale-[0.98]"
-                                    onClick={() => setPreviewImage({
-                                      src: img.preview || `data:${img.mimeType};base64,${img.data}`,
-                                      alt: `Attached image ${idx + 1}`
-                                    })}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                          </>
-                        )}
-                        {msg.type === 'assistant' && (msg.content.includes('Cannot connect') || msg.content.includes('Connection failed')) && errorRetryCount < 3 && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="mt-3 h-7 text-xs"
-                            onClick={() => {
-                              const lastUserMsg = messages.filter(m => m.type === 'user').pop()
-                              if (lastUserMsg) {
-                                setMessages(prev => prev.slice(0, -2))
-                                sendMessage(lastUserMsg.content)
-                              }
-                            }}
-                          >
-                            <RefreshCw className="h-3 w-3 mr-1" />
-                            Retry
-                          </Button>
-                        )}
-                      </>
-                    )}
-                    <div className="flex items-center flex-wrap gap-2 mt-2">
-                      <span className="text-xs opacity-70">{msg.timestamp}</span>
-                      {msg.type === 'assistant' && msg.metrics && (
-                        <div className="flex items-center flex-wrap gap-1.5">
-                          {msg.metrics.tokens_per_second && (
-                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal gap-1">
-                              <Zap className="h-3 w-3" />
-                              {msg.metrics.tokens_per_second.toFixed(1)} tok/s
-                            </Badge>
-                          )}
-                          {msg.metrics.completion_tokens && (
-                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
-                              <Hash className="h-3 w-3" />
-                              {msg.metrics.completion_tokens} tokens
-                            </Badge>
-                          )}
-                          {msg.metrics.total_duration && (
-                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal gap-1">
-                              <Clock className="h-3 w-3" />
-                              {msg.metrics.total_duration.toFixed(1)}s
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                      {/* Copy button for assistant messages */}
-                      {msg.type === 'assistant' && msg.content && (
-                        <button
-                          onClick={async () => {
-                            await navigator.clipboard.writeText(msg.content)
-                            setCopiedMessageId(msg.id)
-                            setTimeout(() => setCopiedMessageId(null), 3000)
-                          }}
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ml-1"
-                          title="Copy response as markdown"
-                        >
-                          {copiedMessageId === msg.id ? (
-                            <>
-                              <Check className="h-3 w-3 text-green-500" />
-                              <span className="text-green-500">Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              <span>Copy</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* YouTube artifact indicator */}
-                {msg.artifactType === 'youtube' && msg.artifactData?.video_id && (
-                  <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2`}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                      onClick={() => {
-                        handleCloseDocument() // Close document if open
-                        setCurrentVideoId(msg.artifactData!.video_id!)
-                        fetchTranscript(msg.artifactData!.video_id!)
-                        if (showStackedView) setIsVideoSheetOpen(true)
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Youtube className="h-4 w-4 text-red-500" />
-                        <div>
-                          <span className="text-sm font-medium">YouTube Video</span>
-                          <div className="text-xs text-muted-foreground">
-                            {msg.artifactData.transcript_available ? 'Transcript available' : 'Click to load'}
-                          </div>
-                        </div>
-                      </div>
-                    </Button>
-                  </div>
-                )}
-
-                {/* Document artifact indicator with file-type specific icons */}
-                {msg.artifactType === 'pdf' && msg.artifactData?.documents && msg.artifactData.documents.length > 0 && (
-                  <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} ml-4 mr-4 mb-2 flex-wrap gap-2`}>
-                    {msg.artifactData.documents.map((doc) => {
-                      const { Icon: FileIcon, color: iconColor } = getFileIcon(doc.name)
-                      return (
-                        <Button
-                          key={doc.id}
-                          variant="outline"
-                          size="sm"
-                          className="h-auto p-3 justify-start bg-card hover:bg-accent/50 border-border text-left"
-                          onClick={() => {
-                            handleCloseVideo() // Close video if open
-                            handleOpenDocument(doc.id)
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <FileIcon className={`h-4 w-4 ${iconColor}`} />
-                            <div className="min-w-0">
-                              <span className="text-sm font-medium truncate block max-w-[200px]" title={doc.name}>
-                                {doc.name}
-                              </span>
-                              <div className="text-xs text-muted-foreground whitespace-nowrap">
-                                {formatFileSize(doc.size)}
-                              </div>
-                            </div>
-                          </div>
-                        </Button>
-                      )
-                    })}
-                  </div>
-                )}
-
-                {/* PDF Document artifact indicator - if checking backend logic, PDFs might not be in artifactData 
-                    but just in the chat context. 
-                    However, if we want to click to view, we should look for them?
-                    Current backend only injects them into system context.
-                    We need to list them from `attachedDocuments`? 
-                    Wait, attachedDocuments are what we are SENDING.
-                    Usually we want to see documents already in the chat. 
-                    `documentService.getDocumentsForChat`?
-                    
-                    For now, let's allow clicking from the `AttachedDocument` previews 
-                    Use `DocumentPreviewList`? No, that's for input.
-                    
-                    We don't have a "Chat Files" list yet.
-                    But if we want a "Not working like screenshot" behavior, 
-                    maybe we just rely on `DocumentPreviewList` in the input area?
-                    Or maybe we should add a "Documents" button in the header?
-                    
-                    The screenshot showed "rag-anything...pdf" in a modal.
-                    Maybe it was clicked from a file list?
-                    
-                    Let's add a `Files` button to the header?
-                    Or better, add a way to view attached documents from previous messages?
-                    
-                    But messages don't store "attached documents" metadata in `artifactData` for PDFs in the current backend logic (only YouTube/Images).
-                    The backend `api/chat.py` only sets `artifact_type="image"` or `artifact_type="youtube"`.
-                    It does not set `artifact_type="pdf"`.
-                    PDFs are uploaded separately via `upload_document`.
-                    
-                    So we can't click a message bubble for PDFs yet.
-                    We should query documents for the chat and list them?
-                    
-                    Let's update the `ChatDetails` to fetch documents.
-                 */}
-              </div>
+              <MessageItem
+                key={msg.id}
+                msg={msg}
+                handleToolAction={handleToolAction}
+                isLoading={isLoading}
+                loadingMessage={loadingMessage}
+                setPreviewImage={setPreviewImage}
+                onRetry={() => {
+                  const lastUserMsg = messages.filter(m => m.type === 'user').pop()
+                  if (lastUserMsg) {
+                    setMessages(prev => prev.slice(0, -2))
+                    sendMessage(lastUserMsg.content)
+                  }
+                }}
+                errorRetryCount={errorRetryCount}
+                copiedMessageId={copiedMessageId}
+                setCopiedMessageId={setCopiedMessageId}
+                handleCloseVideo={handleCloseVideo}
+                handleCloseDocument={handleCloseDocument}
+                handleOpenDocument={handleOpenDocument}
+                fetchTranscript={fetchTranscript}
+                showStackedView={showStackedView}
+                setIsVideoSheetOpen={setIsVideoSheetOpen}
+              />
             ))}
             <div ref={scrollAnchorRef} className="h-1" aria-hidden="true" />
           </div>
@@ -1584,7 +1606,7 @@ export default function ChatDetail() {
               ref={textareaRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder={attachedImages.length > 0 ? "Add a message about the image(s)..." : "Send a message or paste a YouTube URL..."}
+              placeholder={attachedImages.length > 0 ? "Add a message about the image(s)..." : "Send a message or paste a YouTube URL, upload documents..."}
               className="flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none min-h-[24px]"
               rows={1}
               onKeyDown={(e) => {
