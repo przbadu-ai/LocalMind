@@ -22,9 +22,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json bun.lock* ./
 
-# Install dependencies with cache mount for faster rebuilds
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile
+# Install dependencies
+RUN bun install --frozen-lockfile
 
 # Copy source code (excluding backend via .dockerignore)
 COPY src/ ./src/
