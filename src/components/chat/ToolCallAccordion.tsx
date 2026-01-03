@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, memo } from "react"
 import { ChevronDown, ChevronRight, Terminal, CheckCircle2, XCircle, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +10,7 @@ interface ToolCallAccordionProps {
   onAction?: (toolCallId: string, action: 'approve' | 'deny', toolName: string, toolArgs: any) => void
 }
 
-export function ToolCallAccordion({ toolCalls, onAction }: ToolCallAccordionProps) {
+export const ToolCallAccordion = memo(({ toolCalls, onAction }: ToolCallAccordionProps) => {
   const [openItems, setOpenItems] = useState<Record<string, boolean>>({})
 
   const toggleItem = (id: string) => {
@@ -174,4 +174,4 @@ export function ToolCallAccordion({ toolCalls, onAction }: ToolCallAccordionProp
       })}
     </div>
   )
-}
+});

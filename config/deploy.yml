@@ -25,7 +25,7 @@ image: przbadu/localmind
 servers:
   web:
     hosts:
-      - 192.168.1.173
+      - <%= ENV['DEPLOY_SERVER_IP'] || raise('DEPLOY_SERVER_IP environment variable is required') %>
     options:
       add-host: host.docker.internal:host-gateway
 
@@ -34,7 +34,7 @@ servers:
 proxy:
   ssl: false
   hosts:
-    - <%= ENV['DEPLOY_SERVER_IP'] || '192.168.1.173' %>
+    - <%= ENV['DEPLOY_SERVER_IP'] || raise('DEPLOY_SERVER_IP environment variable is required') %>
 <% if ENV['DEPLOY_DOMAIN'] && !ENV['DEPLOY_DOMAIN'].empty? %>
     - <%= ENV['DEPLOY_DOMAIN'] %>
 <% end %>
@@ -80,10 +80,7 @@ builder:
     AUTH_ENABLED: <%= ENV['AUTH_ENABLED'] || 'false' %>
     AUTH_ALLOW_SIGNUP: <%= ENV['AUTH_ALLOW_SIGNUP'] || 'false' %>
 
-# Logging configuration (disable log-opt for journald compatibility)
-logging:
-  driver: journald
-  options: {}
+# Logging configuration
 
 # Number of old containers to keep for rollback
 retain_containers: 3

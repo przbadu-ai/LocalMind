@@ -229,6 +229,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 if think:
                     # Add to buffer for tag detection
                     content_buffer += content
+                    
+                    # Estimate metrics
+                    elapsed = time.time() - start_time
+                    completion_tokens += int(len(content) / 4)
+                    tps = completion_tokens / elapsed if elapsed > 0 else 0
+                    partial_metrics = GenerationMetrics(
+                        completion_tokens=completion_tokens,
+                        tokens_per_second=round(tps, 2),
+                        total_duration=round(elapsed, 2)
+                    )
 
                     # Check for thinking start tag
                     if not in_thinking_block:
@@ -240,13 +250,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                                 if match:
                                     before_content = content_buffer[:match.start()]
                                     if before_content:
-                                        yield StreamChunk(type="content", content=before_content)
+                                        yield StreamChunk(type="content", content=before_content, metrics=partial_metrics)
                                     content_buffer = content_buffer[match.end():]
                                     in_thinking_block = True
                                     break
                         else:
                             # No thinking tag, yield content directly
-                            yield StreamChunk(type="content", content=content_buffer)
+                            yield StreamChunk(type="content", content=content_buffer, metrics=partial_metrics)
                             content_buffer = ""
 
                     # Check for thinking end tag (if in thinking block)
@@ -259,17 +269,26 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                                 if match:
                                     thinking_content = content_buffer[:match.start()]
                                     if thinking_content:
-                                        yield StreamChunk(type="thinking", thinking=thinking_content)
+                                        yield StreamChunk(type="thinking", thinking=thinking_content, metrics=partial_metrics)
                                     content_buffer = content_buffer[match.end():]
                                     in_thinking_block = False
                                     break
                         elif len(content_buffer) > 100:
                             # Yield thinking content in chunks to avoid buffering too much
-                            yield StreamChunk(type="thinking", thinking=content_buffer)
+                            yield StreamChunk(type="thinking", thinking=content_buffer, metrics=partial_metrics)
                             content_buffer = ""
                 else:
                     # Thinking detection disabled, yield as content directly
-                    yield StreamChunk(type="content", content=content)
+                    # Estimate metrics
+                    elapsed = time.time() - start_time
+                    completion_tokens += int(len(content) / 4)
+                    tps = completion_tokens / elapsed if elapsed > 0 else 0
+                    partial_metrics = GenerationMetrics(
+                        completion_tokens=completion_tokens,
+                        tokens_per_second=round(tps, 2),
+                        total_duration=round(elapsed, 2)
+                    )
+                    yield StreamChunk(type="content", content=content, metrics=partial_metrics)
 
             # Handle tool calls
             if delta.tool_calls:

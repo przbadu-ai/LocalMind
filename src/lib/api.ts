@@ -2,8 +2,10 @@
  * API configuration and utilities for the Local Mind application.
  */
 
-// Use unique port to avoid conflicts with other services
-export const API_BASE_URL = 'http://localhost:52817';
+import { API_BASE_URL as CONFIG_API_BASE_URL } from '@/config/app-config';
+
+// Re-export for convenience (imported from centralized config)
+export const API_BASE_URL = CONFIG_API_BASE_URL;
 export const API_PREFIX = '/api/v1';
 
 /**

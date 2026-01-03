@@ -6,8 +6,8 @@
 # The actual deployment logic is in .kamal/hooks/pre-deploy
 #
 # Usage:
-#   ./bin/deploy           # Default: builds with --no-cache (reliable)
-#   ./bin/deploy --cached  # Uses Docker cache (faster, for frontend-only changes)
+#   ./bin/deploy           # Default: uses Docker cache (fast)
+#   ./bin/deploy --no-cache  # Fresh build without cache (slow, use when deps change)
 #
 
 set -e
@@ -15,30 +15,30 @@ set -e
 cd "$(dirname "$0")/.."
 
 # Parse arguments
-USE_CACHE=false
+NO_CACHE=false
 for arg in "$@"; do
-    case $arg in
-        --cached)
-            USE_CACHE=true
-            shift
-            ;;
-    esac
+  case $arg in
+  --no-cache)
+    NO_CACHE=true
+    shift
+    ;;
+  esac
 done
 
 # Export for pre-deploy hook to use
-export DEPLOY_USE_CACHE="$USE_CACHE"
+export DEPLOY_NO_CACHE="$NO_CACHE"
 
 echo "╔════════════════════════════════════════╗"
 echo "║     LocalMind Deployment               ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
-if [ "$USE_CACHE" = true ]; then
-    echo "Mode: CACHED (faster, uses Docker cache)"
-    echo "      Use this for frontend-only changes"
+if [ "$NO_CACHE" = true ]; then
+  echo "Mode: FRESH (--no-cache, rebuilds everything)"
+  echo "      This is slow. Only use when dependencies change."
 else
-    echo "Mode: FRESH (--no-cache, reliable)"
-    echo "      Use --cached flag for faster builds"
+  echo "Mode: CACHED (fast, uses Docker layer cache)"
+  echo "      Use --no-cache if you changed requirements.txt"
 fi
 
 echo ""
@@ -52,7 +52,18 @@ echo ""
 
 kamal deploy
 
-echo ""
-echo "✓ Deployment complete!"
-echo "  Frontend: http://192.168.1.173"
-echo "  Backend:  http://192.168.1.173:8001"
+# Get server IP from .env file
+if [ -f ".env" ]; then
+  DEPLOY_SERVER_IP=$(grep -E "^DEPLOY_SERVER_IP=" ".env" | cut -d'=' -f2)
+fi
+
+if [ -z "$DEPLOY_SERVER_IP" ]; then
+  echo ""
+  echo "✓ Deployment complete!"
+  echo "  Check your server at the IP configured in .env"
+else
+  echo ""
+  echo "✓ Deployment complete!"
+  echo "  Frontend: http://$DEPLOY_SERVER_IP"
+  echo "  Backend:  http://$DEPLOY_SERVER_IP:8001"
+fi

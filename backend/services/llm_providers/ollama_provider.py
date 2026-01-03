@@ -241,25 +241,49 @@ class OllamaProvider(BaseLLMProvider):
                     raise
 
         try:
-            # Track accumulated content for tool call parsing
-            current_tool_calls: dict[int, dict[str, Any]] = {}
+            # Track accumulated content for metrics estimation
+            total_content_len = 0
+            import time
+            start_time = time.time()
 
             for chunk in get_stream():
                 message = chunk.get("message", {})
-
+                
+                # Estimate metrics
+                elapsed = time.time() - start_time
+                partial_metrics = None
+                
                 # Handle thinking content (separate from main content)
                 thinking = message.get("thinking")
                 if thinking:
+                    total_content_len += len(thinking)
                     cleaned_thinking = clean_llm_output(thinking)
                     if cleaned_thinking:
-                        yield StreamChunk(type="thinking", thinking=cleaned_thinking)
+                        # Estimate tokens (approx 4 chars per token)
+                        completion_tokens = int(total_content_len / 4)
+                        tps = completion_tokens / elapsed if elapsed > 0 else 0
+                        partial_metrics = GenerationMetrics(
+                            completion_tokens=completion_tokens,
+                            tokens_per_second=round(tps, 2),
+                            total_duration=round(elapsed, 2)
+                        )
+                        yield StreamChunk(type="thinking", thinking=cleaned_thinking, metrics=partial_metrics)
 
                 # Handle main content
                 content = message.get("content")
                 if content:
+                    total_content_len += len(content)
                     cleaned_content = clean_llm_output(content)
                     if cleaned_content:
-                        yield StreamChunk(type="content", content=cleaned_content)
+                        # Estimate tokens
+                        completion_tokens = int(total_content_len / 4)
+                        tps = completion_tokens / elapsed if elapsed > 0 else 0
+                        partial_metrics = GenerationMetrics(
+                            completion_tokens=completion_tokens,
+                            tokens_per_second=round(tps, 2),
+                            total_duration=round(elapsed, 2)
+                        )
+                        yield StreamChunk(type="content", content=cleaned_content, metrics=partial_metrics)
 
                 # Handle tool calls
                 tool_calls = message.get("tool_calls")
