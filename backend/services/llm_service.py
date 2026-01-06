@@ -7,7 +7,7 @@ This service supports multiple LLM providers using native packages:
 """
 
 import logging
-from typing import Any, Generator, Optional
+from typing import Any, AsyncGenerator, Generator, Optional
 
 from .llm_providers import (
     BaseLLMProvider,
@@ -249,6 +249,39 @@ class LLMService:
             raise RuntimeError("LLM not configured. Please configure LLM settings first.")
 
         yield from self._provider.chat_stream(messages, temperature, max_tokens, tools, think)
+
+    async def chat_stream_async(
+        self,
+        messages: list[ChatMessage],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        think: bool = True,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Async version of chat_stream for concurrent request handling.
+
+        Args:
+            messages: List of chat messages
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            tools: Optional list of tool definitions
+            think: Whether to enable thinking/reasoning output
+
+        Yields:
+            StreamChunk objects containing content, thinking, or tool calls
+        """
+        if not self._ensure_provider():
+            raise RuntimeError("LLM not configured. Please configure LLM settings first.")
+
+        # Use async method if available, otherwise fall back to sync with warning
+        if hasattr(self._provider, 'chat_stream_async'):
+            async for chunk in self._provider.chat_stream_async(messages, temperature, max_tokens, tools, think):
+                yield chunk
+        else:
+            # Fall back to sync for providers that don't support async yet
+            logger.warning(f"Provider {type(self._provider).__name__} doesn't support async streaming, using sync")
+            for chunk in self._provider.chat_stream(messages, temperature, max_tokens, tools, think):
+                yield chunk
 
     def chat_stream_simple(
         self,
