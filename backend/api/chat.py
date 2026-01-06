@@ -91,22 +91,49 @@ class CancelStreamRequest(BaseModel):
     stream_id: str
 
 
-def get_llm_service_for_chat(chat: Optional[Chat]) -> LLMService:
+def get_llm_service_for_chat(
+    chat: Optional[Chat],
+    request_provider: Optional[str] = None,
+    request_model: Optional[str] = None,
+) -> LLMService:
     """Get the appropriate LLM service for a chat.
 
-    If the chat has a custom model/provider set, create a new service with those settings.
-    Otherwise, return the global llm_service.
+    Priority order:
+    1. Request-level provider/model (if both provided)
+    2. Chat's stored provider/model (if both set)
+    3. Global default llm_service
+
+    Args:
+        chat: The chat object (may have stored provider/model)
+        request_provider: Provider name from the current request
+        request_model: Model name from the current request
     """
-    if chat and chat.provider and chat.model:
-        # Get provider credentials
-        provider = config_repo.get_llm_provider_for_use(chat.provider)
-        if provider:
+    # Priority 1: Use request-level provider/model if provided
+    logger.info(f"get_llm_service_for_chat called: request_provider={request_provider}, request_model={request_model}, chat.provider={chat.provider if chat else None}, chat.model={chat.model if chat else None}")
+    if request_provider and request_model:
+        provider_config = config_repo.get_llm_provider_for_use(request_provider)
+        logger.info(f"Looking up provider '{request_provider}': found={provider_config is not None}")
+        if provider_config:
+            logger.info(f"Using request-level provider: {request_provider}, model: {request_model}, base_url: {provider_config.base_url}")
             return LLMService(
-                base_url=provider.base_url,
-                api_key=provider.api_key,
+                base_url=provider_config.base_url,
+                api_key=provider_config.api_key,
+                model=request_model,
+            )
+
+    # Priority 2: Use chat's stored provider/model
+    if chat and chat.provider and chat.model:
+        provider_config = config_repo.get_llm_provider_for_use(chat.provider)
+        if provider_config:
+            logger.info(f"Using chat's stored provider: {chat.provider}, model: {chat.model}")
+            return LLMService(
+                base_url=provider_config.base_url,
+                api_key=provider_config.api_key,
                 model=chat.model,
             )
-    # Fall back to global service
+
+    # Priority 3: Fall back to global service
+    logger.info("Using global default LLM service")
     return llm_service
 
 
@@ -120,6 +147,8 @@ async def stream_chat_response(
     think: bool = True,
     documents: Optional[list[dict[str, Any]]] = None,
     resume_from_tool_call: Optional[dict[str, Any]] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
 ):
     """Generate streaming chat response.
 
@@ -133,6 +162,8 @@ async def stream_chat_response(
         think: Whether to enable thinking/reasoning output for supported models
         documents: Optional RAG documents
         resume_from_tool_call: Optional tool call result to resume from (skips initial generation)
+        provider: Optional provider name for per-request model selection
+        model: Optional model name for per-request model selection
     """
     # Set up cancellation event
     cancel_event = asyncio.Event()
@@ -339,8 +370,9 @@ Use this document content to answer the user's questions. Reference specific sec
         else:
             context_messages.append(ChatMessage(role="user", content=message))
 
-        # Get the appropriate LLM service for this chat (may be per-chat model)
-        chat_llm_service = get_llm_service_for_chat(chat)
+        # Get the appropriate LLM service for this chat
+        # Priority: request params > chat stored settings > global default
+        chat_llm_service = get_llm_service_for_chat(chat, provider, model)
 
         # Fetch MCP tools from enabled servers
         mcp_tools: list[dict[str, Any]] = []
@@ -447,66 +479,58 @@ You have access to the following tools. Use them when you need real-time or accu
         try:
             # Single pass - either stream content OR execute tools (not both in a loop)
             # pending_tool_calls is empty unless resuming
-            
-            # Use an iterator variable so we don't have to indent the huge loop body
-            stream_iterator = []
+
+            # Use async streaming to allow concurrent requests
             if not is_resuming:
-                stream_iterator = chat_llm_service.chat_stream(
+                async for chunk in chat_llm_service.chat_stream_async(
                     context_messages,
                     temperature=temperature,
                     tools=mcp_tools if mcp_tools else None,
                     think=think,
-                )
+                ):
+                    # Check for cancellation
+                    if cancel_event.is_set():
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "type": "cancelled",
+                                "message": "Stream cancelled by user",
+                            }),
+                        }
+                        return
 
-            # Stream the LLM response (Normal path)
-            for chunk in stream_iterator:
-
-
-                # Check for cancellation
-                if cancel_event.is_set():
-                    yield {
-                        "event": "message",
-                        "data": json.dumps({
-                            "type": "cancelled",
-                            "message": "Stream cancelled by user",
-                        }),
-                    }
-                    return
-
-                if chunk.type == "thinking" and chunk.thinking:
-                    # Handle thinking/reasoning content from models like deepseek-r1, qwen3
-                    full_thinking += chunk.thinking
-                    payload = {
-                        "type": "thinking",
-                        "content": chunk.thinking,
-                    }
-                    if chunk.metrics:
-                        payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
-                    yield {
-                        "event": "message",
-                        "data": json.dumps(payload),
-                    }
-                elif chunk.type == "content" and chunk.content:
-                    full_response += chunk.content
-                    payload = {
-                        "type": "content",
-                        "content": chunk.content,
-                    }
-                    if chunk.metrics:
-                        payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
-                    yield {
-                        "event": "message",
-                        "data": json.dumps(payload),
-                    }
-                elif chunk.type == "tool_call" and chunk.tool_call:
-                    pending_tool_calls.append(chunk.tool_call)
-                elif chunk.type == "done":
-                    # Capture generation metrics from the done chunk
-                    if chunk.metrics:
-                        generation_metrics = chunk.metrics.model_dump(exclude_none=True)
-                    break
-
-                    return
+                    if chunk.type == "thinking" and chunk.thinking:
+                        # Handle thinking/reasoning content from models like deepseek-r1, qwen3
+                        full_thinking += chunk.thinking
+                        payload = {
+                            "type": "thinking",
+                            "content": chunk.thinking,
+                        }
+                        if chunk.metrics:
+                            payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
+                        yield {
+                            "event": "message",
+                            "data": json.dumps(payload),
+                        }
+                    elif chunk.type == "content" and chunk.content:
+                        full_response += chunk.content
+                        payload = {
+                            "type": "content",
+                            "content": chunk.content,
+                        }
+                        if chunk.metrics:
+                            payload["metrics"] = chunk.metrics.model_dump(exclude_none=True)
+                        yield {
+                            "event": "message",
+                            "data": json.dumps(payload),
+                        }
+                    elif chunk.type == "tool_call" and chunk.tool_call:
+                        pending_tool_calls.append(chunk.tool_call)
+                    elif chunk.type == "done":
+                        # Capture generation metrics from the done chunk
+                        if chunk.metrics:
+                            generation_metrics = chunk.metrics.model_dump(exclude_none=True)
+                        break
 
             # Execute any tool calls that were requested
             if pending_tool_calls:
@@ -686,7 +710,7 @@ You have access to the following tools. Use them when you need real-time or accu
                 # Call LLM again with tool results to generate a natural language response
                 # The LLM will use the tool results to formulate a helpful answer
                 logger.info("Calling LLM again with tool results to generate final response")
-                for chunk in chat_llm_service.chat_stream(
+                async for chunk in chat_llm_service.chat_stream_async(
                     context_messages,
                     temperature=temperature,
                     tools=None,  # Don't offer tools on the follow-up call
@@ -844,6 +868,8 @@ async def chat_stream(request: ChatStreamRequest):
             think=request.think,
             documents=request.documents,
             resume_from_tool_call=request.resume_from_tool_call,
+            provider=request.provider,
+            model=request.model,
         ),
         media_type="text/event-stream",
     )

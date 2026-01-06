@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHeaderStore } from "@/stores/useHeaderStore"
-import { API_BASE_URL, OLLAMA_BASE_URL } from "@/config/app-config"
+import { API_BASE_URL } from "@/config/app-config"
 import { chatService, type Chat } from "@/services/chat-service"
 import { MarkdownRenderer } from "@/components/MarkdownRenderer"
 import { YouTubePlayer, TranscriptViewer, type TranscriptSegment } from "@/components/youtube"
@@ -1080,6 +1080,9 @@ export default function ChatDetail() {
               include_transcript: true,
               stream_id: streamId,
               think: thinkingEnabled,  // Enable thinking/reasoning for supported models
+              // Include selected provider/model for per-chat model selection
+              ...(chatProvider && { provider: chatProvider }),
+              ...(chatModel && { model: chatModel }),
               // Include images if any were attached
               ...(imagesToSend.length > 0 && {
                 images: imagesToSend.map(img => ({
@@ -1428,6 +1431,17 @@ export default function ChatDetail() {
           }
 
           lastError = error
+
+          // Only retry on network failures (fetch didn't reach server)
+          // Don't retry on server errors (4xx/5xx) as the message may already be saved
+          const errorMsg = error instanceof Error ? error.message : ''
+          const isServerError = errorMsg.includes('Server responded with')
+
+          if (isServerError) {
+            // Server received the request - don't retry to avoid duplicate messages
+            break
+          }
+
           retryCount++
 
           if (retryCount >= MAX_RETRIES) {
@@ -1443,7 +1457,8 @@ export default function ChatDetail() {
 
         if (errorMessage.includes('ollama_connection_failed')) {
           const modelInfo = chatModel || 'selected model'
-          userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${modelInfo})\n• The server is accessible at ${OLLAMA_BASE_URL}`
+          const providerInfo = chatProvider || 'configured provider'
+          userFriendlyMessage = `Cannot connect to LLM service. Please ensure:\n• The LLM server is running\n• The model is available (${modelInfo})\n• Check the ${providerInfo} settings in Settings > LLM Provider`
         } else if (errorMessage.includes('fetch')) {
           userFriendlyMessage = `Cannot connect to the backend server. Please ensure:\n• The backend server is running\n• API is accessible at ${API_BASE_URL}\n• Run: cd backend && python -m backend.main`
         } else {
@@ -1462,7 +1477,7 @@ export default function ChatDetail() {
       setLoadingMessage("")
       isSubmittingRef.current = false // Reset submission guard
     }
-  }, [isLoading, fetchTranscript, setTitle, attachedImages, attachedDocuments, thinkingEnabled])
+  }, [isLoading, fetchTranscript, setTitle, attachedImages, attachedDocuments, thinkingEnabled, chatProvider, chatModel])
 
   // Wrapper for button click
   const handleSendMessage = useCallback(() => {
